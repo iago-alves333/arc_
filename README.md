@@ -1,4 +1,4 @@
-#  Quebra de Maldição
+#  Trabalho Arquitetura de computadores II
 
 Aplicação educacional interativa que ensina conceitos de **Criptografia** e **Sistemas Distribuídos** a alunos do 9.º ano, através de um jogo gamificado em duas fases.
 
