@@ -1,0 +1,183 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =========================================
+   GLOBAL BASE STYLES
+   ========================================= */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: #0a0a0a;
+  color: #CCCCCC;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* =========================================
+   SCROLLBAR
+   ========================================= */
+::-webkit-scrollbar {
+  width: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: #111111;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #333333;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555555;
+}
+
+/* =========================================
+   TERMINAL SCAN LINE (Phase 1 only)
+   ========================================= */
+.terminal-scanline::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: rgba(57, 255, 20, 0.06);
+  animation: scan 4s linear infinite;
+  pointer-events: none;
+  z-index: 998;
+}
+
+/* =========================================
+   TERMINAL SCROLLBAR
+   ========================================= */
+.terminal-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #39FF14 #111111;
+}
+
+.terminal-scroll::-webkit-scrollbar {
+  width: 3px;
+}
+
+.terminal-scroll::-webkit-scrollbar-thumb {
+  background: #39FF14;
+  border-radius: 2px;
+}
+
+/* =========================================
+   RANGE SLIDER — Terminal style
+   ========================================= */
+input[type="range"].slider-terminal {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  background: #222222;
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+input[type="range"].slider-terminal::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  background: #0a0a0a;
+  border: 2px solid #39FF14;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(57, 255, 20, 0.4);
+  transition: box-shadow 0.2s ease;
+}
+
+input[type="range"].slider-terminal::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 14px rgba(57, 255, 20, 0.7);
+}
+
+input[type="range"].slider-terminal::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  background: #0a0a0a;
+  border: 2px solid #39FF14;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(57, 255, 20, 0.4);
+}
+
+/* =========================================
+   RANGE SLIDER — Modern style (Phase 2)
+   ========================================= */
+input[type="range"].slider-modern {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  background: #2a2d3e;
+  border-radius: 3px;
+  outline: none;
+  cursor: pointer;
+}
+
+input[type="range"].slider-modern::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  background: linear-gradient(135deg, #6366F1, #818CF8);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4);
+}
+
+input[type="range"].slider-modern::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  background: linear-gradient(135deg, #6366F1, #818CF8);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4);
+}
+
+/* =========================================
+   LOCAL PROGRESS BAR CYCLE
+   ========================================= */
+@keyframes localProcess {
+  0% { width: 0%; }
+  20% { width: 70%; }
+  40% { width: 85%; }
+  55% { width: 40%; }
+  70% { width: 92%; }
+  85% { width: 55%; }
+  100% { width: 0%; }
+}
+
+.local-progress-bar {
+  animation: localProcess 2s ease-in-out infinite;
+}
+
+/* =========================================
+   CONFETTI
+   ========================================= */
+@keyframes confettiFall {
+  0% { transform: translateY(-100vh) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+}
+
+.confetti-particle {
+  animation: confettiFall linear infinite;
+}
