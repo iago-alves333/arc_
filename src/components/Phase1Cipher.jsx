@@ -16,27 +16,49 @@ function caesarShift(text, shift) {
     .join('')
 }
 
-// "MALDICAO" shifted +3 → "PDOGLFDR"
-const ENCRYPTED = 'PDOGLFDR'
-const SOLUTION = 'MALDICAO'
+// ─── Pool de palavras temáticas (todas UPPERCASE, sem acentos) ─────
+// Cada aluno receberá uma palavra aleatória com um shift aleatório
+const WORD_POOL = [
+  'MALDICAO', 'FANTASMA', 'SOMBRIAS', 'MALDITOS', 'CAVEIRAS',
+  'CRIPTADO', 'SEGREDOS', 'CIFRA', 'ABISMO', 'ENIGMA',
+  'LABIRINTO', 'ESPECTRO', 'TREVAS', 'SINISTRA', 'MISTERIO',
+  'VAMPIROS', 'FANTASMA', 'HORRORES', 'OBSCUROS', 'TENEBROSO',
+  'DEMONIO', 'PESADELO', 'SINISTRO', 'LOBISOMEM', 'BRUXARIA',
+  'SOMBRIO', 'CRIATURA', 'TORMENTO', 'INFERNAL', 'MACABROS',
+]
+
+/**
+ * Gera um desafio aleatório: escolhe uma palavra do pool e um shift entre 1-12.
+ * Retorna { encrypted, solution, originalShift }.
+ */
+function generateRandomChallenge() {
+  const word = WORD_POOL[Math.floor(Math.random() * WORD_POOL.length)]
+  // Shift entre 1 e 12 (evita 0, que não cifra nada)
+  const originalShift = 1 + Math.floor(Math.random() * 12)
+  const encrypted = caesarShift(word, originalShift)
+  return { encrypted, solution: word, originalShift }
+}
 
 export default function Phase1Cipher({ playerName, onComplete }) {
+  // Gerar desafio único para este aluno (estável durante re-renders)
+  const challenge = useMemo(() => generateRandomChallenge(), [])
+
   const [shift, setShift] = useState(0)
   const [solved, setSolved] = useState(false)
   const [showButton, setShowButton] = useState(false)
 
-  const displayedWord = useMemo(() => caesarShift(ENCRYPTED, shift), [shift])
+  const displayedWord = useMemo(() => caesarShift(challenge.encrypted, shift), [shift, challenge.encrypted])
   const formattedWord = displayedWord.split('').join(' ')
-  const isCorrect = displayedWord === SOLUTION
+  const isCorrect = displayedWord === challenge.solution
 
   const handleSliderChange = (e) => {
     const val = parseInt(e.target.value, 10)
     setShift(val)
 
-    if (caesarShift(ENCRYPTED, val) === SOLUTION && !solved) {
+    if (caesarShift(challenge.encrypted, val) === challenge.solution && !solved) {
       setSolved(true)
       setTimeout(() => setShowButton(true), 500)
-    } else if (caesarShift(ENCRYPTED, val) !== SOLUTION) {
+    } else if (caesarShift(challenge.encrypted, val) !== challenge.solution) {
       setSolved(false)
       setShowButton(false)
     }
