@@ -24,8 +24,8 @@ import java.util.concurrent.ThreadLocalRandom;
 /**
  * Motor do Sistema Distribuído — O "Job Tracker".
  *
- * Cada aluno recebe uma palavra aleatória da lista predefinida e deve
- * quebrá-la via força bruta sobre o espaço alfanumérico de 26^8 combinações.
+ * Cada aluno recebe uma senha alfanumérica aleatória de 8 caracteres
+ * e deve quebrá-la via força bruta sobre o espaço de 36^8 ≈ 2.8 trilhões de combinações.
  */
 @Service
 public class GameService {
@@ -34,27 +34,13 @@ public class GameService {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // =====================================================
-    // Lista de palavras — [normalizada, display]
+    // Charset e configuração
     // =====================================================
 
-    private static final String[][] WORD_LIST = {
-        {"cachorro", "Cachorro"},
-        {"programa", "Programa"},
-        {"ambiente", "Ambiente"},
-        {"telefone", "Telefone"},
-        {"controle", "Controle"},
-        {"dinheiro", "Dinheiro"},
-        {"paisagem", "Paisagem"},
-        {"biscoito", "Biscoito"},
-        {"natureza", "Natureza"},
-        {"pesquisa", "Pesquisa"},
-        {"maldicao", "Maldição"},
-    };
+    /** Charset para a força bruta: letras minúsculas + dígitos (36 caracteres) */
+    private static final String CHARSET = "abcdefghijklmnopqrstuvwxyz0123456789";
 
-    /** Charset para a força bruta: letras minúsculas a-z */
-    private static final String CHARSET = "abcdefghijklmnopqrstuvwxyz";
-
-    /** Comprimento fixo das palavras (todas têm 8 caracteres) */
+    /** Comprimento fixo das senhas (8 caracteres alfanuméricos) */
     private static final int WORD_LENGTH = 8;
 
     // =====================================================
@@ -79,9 +65,6 @@ public class GameService {
 
     private final ConcurrentHashMap<String, ConnectedStudent> students = new ConcurrentHashMap<>();
 
-    /** Controla qual palavra foi usada por último (round-robin) */
-    private int nextWordIndex = 0;
-
     // =====================================================
     // Inicialização
     // =====================================================
@@ -92,27 +75,31 @@ public class GameService {
         chunkSize = totalSearchSpace / numChunks;
 
         log.info("=== QUEBRA DE MALDIÇÃO API INICIADA ===");
-        log.info("Palavras disponíveis: {}", WORD_LIST.length);
-        log.info("Charset: a-z ({} caracteres)", CHARSET.length());
-        log.info("Comprimento da palavra: {}", WORD_LENGTH);
-        log.info("Espaço de procura: {} combinações", String.format("%,d", totalSearchSpace));
+        log.info("Charset: a-z0-9 ({} caracteres)", CHARSET.length());
+        log.info("Comprimento da senha: {}", WORD_LENGTH);
+        log.info("Espaço de procura: {} combinações (36^8)", String.format("%,d", totalSearchSpace));
         log.info("Chunks por aluno: {}", numChunks);
         log.info("Tamanho do chunk: {} combinações", String.format("%,d", chunkSize));
         log.info("Timeout de lote: {}s", chunkTimeoutSeconds);
     }
 
     // =====================================================
-    // Seleção de Palavras
+    // Geração de Senhas Aleatórias
     // =====================================================
 
     /**
-     * Seleciona a próxima palavra da lista (round-robin para garantir variedade).
-     * Se houver mais alunos que palavras, as palavras repetem-se.
+     * Gera uma senha alfanumérica aleatória de 8 caracteres.
+     * Cada aluno recebe uma senha única.
+     * Retorna [normalizada, display] (ambas iguais, pois são alfanuméricas).
      */
-    private synchronized String[] selecionarPalavra() {
-        String[] word = WORD_LIST[nextWordIndex % WORD_LIST.length];
-        nextWordIndex++;
-        return word;
+    private String[] gerarSenhaAleatoria() {
+        StringBuilder sb = new StringBuilder(WORD_LENGTH);
+        ThreadLocalRandom rng = ThreadLocalRandom.current();
+        for (int i = 0; i < WORD_LENGTH; i++) {
+            sb.append(CHARSET.charAt(rng.nextInt(CHARSET.length())));
+        }
+        String senha = sb.toString();
+        return new String[]{senha, senha};
     }
 
     /**
@@ -163,18 +150,18 @@ public class GameService {
         String alunoId = UUID.randomUUID().toString();
         ConnectedStudent student = new ConnectedStudent(alunoId, nome, session);
 
-        // Selecionar palavra para este aluno
-        String[] palavra = selecionarPalavra();
-        student.setTargetPassword(palavra[0]);  // normalizada
-        student.setDisplayPassword(palavra[1]); // para exibição
+        // Gerar senha alfanumérica aleatória para este aluno
+        String[] senha = gerarSenhaAleatoria();
+        student.setTargetPassword(senha[0]);  // normalizada
+        student.setDisplayPassword(senha[1]); // para exibição
 
         // Criar chunks
         criarChunksParaAluno(student);
 
         students.put(session.getId(), student);
 
-        log.info("✓ Aluno conectado: {} (ID: {}) — Palavra: '{}' — Total nós: {}",
-                nome, alunoId, palavra[1], students.size());
+        log.info(" Aluno conectado: {} (ID: {}) — Senha: '{}' — Total nós: {}",
+                nome, alunoId, senha[1], students.size());
 
         enviarParaSessao(session, criarMensagemRegisto(student));
         broadcastEstadoGlobal();
@@ -185,7 +172,7 @@ public class GameService {
     public void removerAluno(WebSocketSession session) {
         ConnectedStudent student = students.remove(session.getId());
         if (student != null) {
-            log.info("✗ Aluno desconectado: {} — Restam: {}", student.getNome(), students.size());
+            log.info(" Aluno desconectado: {} — Restam: {}", student.getNome(), students.size());
             broadcastEstadoGlobal();
         }
     }
@@ -247,12 +234,12 @@ public class GameService {
         }
 
         if (chunk == null || chunk.getStatus() != ChunkStatus.EM_PROCESSAMENTO) {
-            log.warn("⚠ Resultado inválido do aluno {} para chunk {}", student.getNome(), chunkId);
+            log.warn(" Resultado inválido do aluno {} para chunk {}", student.getNome(), chunkId);
             return;
         }
 
         if (encontrou && senhaCandidata != null) {
-            // === VALIDAÇÃO ANTI-BATOTA ===
+
             boolean senhaValida = validarSenha(student, senhaCandidata);
 
             if (senhaValida) {
@@ -260,14 +247,14 @@ public class GameService {
                 student.incrementarLotesProcessados();
                 student.setSenhaEncontrada(true);
 
-                log.info("🏆 PALAVRA ENCONTRADA por {} — '{}'",
+                log.info("PALAVRA ENCONTRADA por {} — '{}'",
                         student.getNome(), student.getDisplayPassword());
 
                 enviarParaSessao(session, criarMensagemVitoriaPessoal(student));
                 broadcastEstadoGlobal();
                 verificarTodosConcluidos();
             } else {
-                log.warn("🚫 BATOTA! Aluno {} enviou '{}' (esperada: '{}')",
+                log.warn(" BATOTA! Aluno {} enviou '{}' (esperada: '{}')",
                         student.getNome(), senhaCandidata, student.getTargetPassword());
                 chunk.concluir();
                 student.incrementarLotesProcessados();
@@ -278,7 +265,7 @@ public class GameService {
             chunk.concluir();
             student.incrementarLotesProcessados();
 
-            log.info("✓ Lote {} de {} — Progresso: {}%",
+            log.info(" Lote {} de {} — Progresso: {}%",
                     chunkId, student.getNome(),
                     String.format("%.1f", student.calcularProgresso()));
 
@@ -334,7 +321,7 @@ public class GameService {
         if (students.isEmpty()) return;
         boolean todos = students.values().stream().allMatch(ConnectedStudent::isSenhaEncontrada);
         if (todos) {
-            log.info("🎉 TODOS OS ALUNOS CONCLUÍRAM!");
+            log.info(" TODOS OS ALUNOS CONCLUÍRAM!");
             broadcast(criarMensagemTodosConcluidos());
         }
     }
@@ -344,22 +331,15 @@ public class GameService {
     // =====================================================
 
     public synchronized void resetarJogo() {
-        nextWordIndex = 0;
-        // Baralhar a ordem das palavras para a próxima sessão
-        List<String[]> shuffled = new ArrayList<>(Arrays.asList(WORD_LIST));
-        Collections.shuffle(shuffled);
-        for (int i = 0; i < WORD_LIST.length; i++) {
-            WORD_LIST[i] = shuffled.get(i);
-        }
-
         for (ConnectedStudent student : students.values()) {
-            String[] palavra = selecionarPalavra();
-            student.setTargetPassword(palavra[0]);
-            student.setDisplayPassword(palavra[1]);
+            // Gerar nova senha aleatória para cada aluno
+            String[] senha = gerarSenhaAleatoria();
+            student.setTargetPassword(senha[0]);
+            student.setDisplayPassword(senha[1]);
             student.setSenhaEncontrada(false);
             criarChunksParaAluno(student);
         }
-        log.info("🔄 Jogo reiniciado — {} alunos com novas palavras", students.size());
+        log.info("🔄 Jogo reiniciado — {} alunos com novas senhas", students.size());
         broadcastEstadoGlobal();
     }
 
@@ -489,7 +469,7 @@ public class GameService {
     public Map<String, Object> getEstadoCompleto() {
         Map<String, Object> estado = new LinkedHashMap<>();
         estado.put("totalAlunos", students.size());
-        estado.put("palavrasDisponiveis", WORD_LIST.length);
+        estado.put("senhasTipo", "alfanumérica aleatória 8 chars");
         estado.put("totalCombinacoes", String.format("%,d", totalSearchSpace));
         estado.put("chunksPerAluno", numChunks);
         estado.put("progressoGlobal", Math.round(calcularProgressoGlobal() * 10.0) / 10.0);

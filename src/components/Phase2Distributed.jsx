@@ -1,9 +1,28 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 
 // =========================================
-// WEBSOCKET URL
+// WEBSOCKET URL — Detecção dinâmica para ngrok/nginx
 // =========================================
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8080/ghost-network'
+function getWebSocketUrl() {
+  // Se a variável de ambiente estiver definida, usar diretamente
+  if (import.meta.env.VITE_WS_URL) {
+    return import.meta.env.VITE_WS_URL
+  }
+
+  const { protocol, host, hostname } = window.location
+
+  // Acesso local direto (dev server) → conectar diretamente ao backend
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return 'ws://localhost:8080/ghost-network'
+  }
+
+  // Acesso via ngrok/domínio externo → usar o proxy reverso do nginx
+  // O nginx roteia /api/ → localhost:8080/ (já com suporte a WebSocket)
+  const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${wsProtocol}//${host}/api/ghost-network`
+}
+
+const WS_URL = getWebSocketUrl()
 
 // =========================================
 // CONFETTI
@@ -73,9 +92,9 @@ function VictoryScreen({ playerName, senha, stats }) {
         </p>
 
         <p className="text-sm text-dark-muted leading-relaxed mb-8">
-          O seu dispositivo testou <span className="text-dark-accentLight">208 mil milhões</span> de 
-          combinações de 8 letras para encontrar a sua palavra. Cada aluno tinha 
-          uma palavra <span className="text-dark-accentLight">diferente</span> para descobrir!
+          O seu dispositivo testou <span className="text-dark-accentLight">2,8 trilhões</span> de 
+          combinações alfanuméricas de 8 caracteres para encontrar a sua senha. Cada aluno tinha 
+          uma senha <span className="text-dark-accentLight">diferente</span> para descobrir!
         </p>
 
         {/* Stats */}
@@ -95,8 +114,8 @@ function VictoryScreen({ playerName, senha, stats }) {
         {/* Educational note */}
         <div className="bg-dark-card border border-dark-border rounded-xl p-4 text-left">
           <p className="text-xs text-dark-muted leading-relaxed">
-            <span className="text-dark-success font-semibold">💡 Conceito:</span> Uma palavra de 8 letras 
-            tem 26⁸ = 208.827.064.576 combinações possíveis. Dividir este trabalho entre vários 
+            <span className="text-dark-success font-semibold">💡 Conceito:</span> Uma senha alfanumérica de 8 caracteres 
+            tem 36⁸ = 2.821.109.907.456 combinações possíveis. Dividir este trabalho entre vários 
             computadores é a base dos <em>Sistemas Distribuídos</em>!
           </p>
         </div>
@@ -173,7 +192,7 @@ export default function Phase2Distributed({ playerName }) {
   const wsRef = useRef(null)
   const reconnectTimeoutRef = useRef(null)
   const alunoIdRef = useRef(null)
-  const charsetRef = useRef('abcdefghijklmnopqrstuvwxyz')
+  const charsetRef = useRef('abcdefghijklmnopqrstuvwxyz0123456789')
   const comprimentoRef = useRef(8)
 
   const addLog = useCallback((message, type = 'info') => {
@@ -228,7 +247,7 @@ export default function Phase2Distributed({ playerName }) {
       ws.onerror = () => {
         if (!isMounted) return
         setConnectionStatus('error')
-        addLog('⚠ Erro na conexão WebSocket', 'error')
+        addLog('Erro na conexão WebSocket', 'error')
       }
     }
 
@@ -270,7 +289,7 @@ export default function Phase2Distributed({ playerName }) {
           break
 
         case 'TODOS_CONCLUIDOS':
-          addLog('🎉 Todos os alunos concluíram!', 'success')
+          addLog('Todos os alunos concluíram!', 'success')
           setGlobalProgress(100)
           break
 
@@ -375,12 +394,12 @@ export default function Phase2Distributed({ playerName }) {
       <div className="bg-dark-card border border-dark-border rounded-xl p-4 mb-5 animate-slide-up" style={{ animationDelay: '0.1s' }}>
         <p className="text-sm text-dark-muted leading-relaxed">
           <span className="text-dark-accent font-semibold">{playerName}</span>, cada dispositivo recebeu
-          uma <span className="text-dark-warn font-semibold">palavra secreta diferente</span>.
+          uma <span className="text-dark-warn font-semibold">senha alfanumérica diferente</span>.
           O seu celular está a testar{' '}
           <span className="text-dark-warn font-semibold">
             {totalCombinacoes > 0 ? Number(totalCombinacoes).toLocaleString() : '...'} combinações
           </span>{' '}
-          de 8 letras para encontrar a sua!
+          de 8 caracteres (a-z, 0-9) para encontrar a sua!
         </p>
       </div>
 

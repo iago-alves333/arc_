@@ -1,26 +1,28 @@
-#  Trabalho Arquitetura de computadores II
+# Quebra de Maldição — Arquitetura de Computadores II
 
-Aplicação educacional interativa que ensina conceitos de **Criptografia** e **Sistemas Distribuídos** a alunos do 9.º ano, através de um jogo gamificado em duas fases.
+Aplicação educacional interativa que ensina conceitos de **Criptografia** e **Sistemas Distribuídos** através de um jogo gamificado com estética dark/terminal, acessível pelo celular.
 
-##  Conceito
+## Conceito
 
-Os alunos acedem à aplicação pelo telemóvel e percorrem duas fases:
+Os alunos acessam a aplicação pelo celular e percorrem quatro fases:
 
-1. **Fase 1 — Cifra de César**: Decifram uma mensagem codificada ajustando um slider de deslocamento.
-2. **Fase 2 — Força Bruta Distribuída**: Os telemóveis da turma ligam-se via WebSocket ao servidor Java e recebem, cada um, uma **palavra secreta diferente** para quebrar por força bruta, simulando um sistema distribuído real.
+1. **Login** — Tela de entrada com nome do aluno.
+2. **Fase 1 — Cifra de César** — Decifram uma mensagem codificada ajustando um slider de deslocamento. Cada aluno recebe uma **palavra e shift aleatórios**, tornando o desafio único.
+3. **Mini-Enigmas Aleatórios** — 3 desafios sorteados de um pool (Decodificação Hex, Enigma Macabro, Lógica de Sequência) que devem ser resolvidos em sequência.
+4. **Fase 2 — Força Bruta Distribuída** — Os celulares da turma conectam-se via WebSocket ao servidor Java e recebem, cada um, uma **senha alfanumérica aleatória de 8 caracteres** para quebrar por força bruta, simulando um sistema distribuído real.
 
-##  Arquitetura
+## Arquitetura
 
 ```
-┌─────────────────────┐        WebSocket         ┌──────────────────────┐
-│   Frontend (React)  │ ◄────────────────────────►│  Backend (Spring Boot)│
-│   Vite · Tailwind   │    /ghost-network         │  Java 17 · Maven     │
-│   Porta 5173        │                           │  Porta 8080           │
+┌─────────────────────┐                          ┌──────────────────────┐
+│   Frontend (React)  │        WebSocket          │  Backend (Spring Boot)│
+│   Vite · Tailwind   │ ◄───────────────────────► │  Java 17 · Maven     │
+│   Porta 5173        │   /ghost-network          │  Porta 8080           │
 └─────────────────────┘                           └──────────────────────┘
        Alunos                                      Master Node
 ```
 
-##  Como Executar
+## Como Executar
 
 ### Pré-requisitos
 
@@ -43,59 +45,79 @@ npm install
 npm run dev
 ```
 
-entre em `http://localhost:5173` no browser ou telefone (mesma rede Wi-Fi).
+Acesse `http://localhost:5173` no browser ou celular (mesma rede Wi-Fi).
 
-##  Estrutura do Projeto
+## Estrutura do Projeto
 
 ```
 quebra-maldicao/
-├── src/                         # Frontend React
+├── src/                              # Frontend React
 │   ├── components/
-│   │   ├── LoginScreen.jsx      # Tela de entrada (nome do aluno)
-│   │   ├── Phase1Cipher.jsx     # Fase 1: Cifra de César
-│   │   └── Phase2Distributed.jsx# Fase 2: Força bruta distribuída
-│   ├── App.jsx                  # Router de fases
-│   ├── index.css                # Estilos globais
-│   └── main.jsx                 # Entry point
+│   │   ├── LoginScreen.jsx           # Tela de entrada (nome do aluno)
+│   │   ├── Phase1Cipher.jsx          # Fase 1: Cifra de César (palavra + shift aleatórios)
+│   │   ├── RandomChallengeManager.jsx# Gerenciador de desafios aleatórios
+│   │   ├── Phase2Distributed.jsx     # Fase 2: Força bruta distribuída
+│   │   └── challenges/              # Mini-enigmas modulares
+│   │       ├── ChallengeHexDecode.jsx    # Decodificação hexadecimal
+│   │       ├── ChallengeRiddle.jsx       # Enigma temático
+│   │       └── ChallengeTerminalLogic.jsx# Lógica de sequência
+│   ├── App.jsx                       # Router de fases
+│   ├── index.css                     # Estilos globais
+│   └── main.jsx                      # Entry point
 │
-├── backend/                     # Backend Java
-│   ├── pom.xml                  # Maven + Spring Boot 3.2
+├── backend/                          # Backend Java
+│   ├── pom.xml                       # Maven + Spring Boot 3.2
 │   └── src/main/java/com/quebramaldicao/
 │       ├── QuebraMaldicaoApplication.java
-│       ├── config/              # WebSocket + CORS
-│       ├── controller/          # REST: /api/health, /api/estado
-│       ├── handler/             # WebSocket message router
-│       ├── model/               # WorkChunk, ConnectedStudent, ChunkStatus
-│       └── service/             # GameService (Job Tracker)
+│       ├── config/                   # WebSocket + CORS
+│       ├── controller/               # REST: /api/health, /api/estado, /api/reset
+│       ├── handler/                  # WebSocket message router
+│       ├── model/                    # WorkChunk, ConnectedStudent, ChunkStatus
+│       └── service/                  # GameService (Job Tracker)
 │
+├── nginx.conf                        # Configuração nginx para proxy reverso
+├── vite.config.js                    # Config Vite (HMR desabilitado para ngrok)
 └── package.json
 ```
 
-##  Palavras Secretas
+## Senhas Alfanuméricas
 
-Cada aluno recebe uma palavra diferente (atribuída por round-robin):
+Cada aluno recebe uma **senha alfanumérica aleatória de 8 caracteres** gerada no momento do registro (ex: `k9f2m1xp`, `ab3z7w2q`).
 
-> Cachorro · Programa · Ambiente · Telefone · Controle · Dinheiro · Paisagem · Biscoito · Natureza · Pesquisa · Maldição
+- **Charset**: `a-z0-9` (36 caracteres)
+- **Espaço de procura**: **36⁸ = 2.821.109.907.456 combinações** (~2,8 trilhões)
+- **Lotes por aluno**: 94 (configurável)
+- Cada aluno recebe uma senha **única** — não há repetição
 
-O espaço de procura é de **26⁸ = 208.827.064.576 combinações** de 8 letras, divididas em 94 lotes por aluno.
+## Desafios Aleatórios (Fase Intermediária)
 
-##  Configuração
+O `RandomChallengeManager` sorteia 3 desafios de um pool modular:
+
+| Desafio | Descrição |
+|---|---|
+| **Decodificação Hex** | Converter valores hexadecimais para texto |
+| **Enigma Macabro** | Resolver charadas temáticas |
+| **Lógica de Sequência** | Completar padrões lógicos no terminal |
+
+Para adicionar um novo desafio, basta criar o componente em `src/components/challenges/` (com prop `onSolve`) e registrá-lo no array `CHALLENGE_REGISTRY` do `RandomChallengeManager.jsx`.
+
+## Configuração
 
 Editável em `backend/src/main/resources/application.properties`:
 
 | Propriedade | Default | Descrição |
 |---|---|---|
 | `game.num-chunks` | `94` | Lotes por aluno (~500ms cada ≈ 47s total) |
-| `game.chunk-timeout-seconds` | `15` | Timeout para lotes órfãos |
+| `game.chunk-timeout-seconds` | `240` | Timeout para lotes órfãos |
 | `server.port` | `8080` | Porta do servidor |
 
-##  Segurança
+## Segurança
 
 - **Anti-batota**: O servidor valida todas as respostas — não aceita senhas incorretas.
 - **Estado centralizado**: O progresso e o resultado pertencem exclusivamente ao servidor Java.
-- **Tolerância a falhas**: Lotes sem resposta em 15s voltam à fila para reatribuição.
+- **Tolerância a falhas**: Lotes sem resposta no tempo configurado voltam à fila para reatribuição.
 
-##  Tecnologias
+## Tecnologias
 
 | Camada | Tecnologia |
 |---|---|
