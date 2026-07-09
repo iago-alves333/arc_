@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 
 // ─── Imports dos desafios ───────────────────────────────────
-import ChallengeHexDecode from './challenges/ChallengeHexDecode'
+import ChallengeLoadBalancer from './challenges/ChallengeLoadBalancer'
 import ChallengeRiddle from './challenges/ChallengeRiddle'
 import ChallengeTerminalLogic from './challenges/ChallengeTerminalLogic'
 
@@ -47,9 +47,9 @@ import ChallengeTerminalLogic from './challenges/ChallengeTerminalLogic'
 //   - component: o componente React (deve aceitar prop `onSolve`)
 const CHALLENGE_REGISTRY = [
   {
-    id: 'hex-decode',
-    name: 'Decodificação Hex',
-    component: ChallengeHexDecode,
+    id: 'load-balancer',
+    name: 'Balanceador de Carga',
+    component: ChallengeLoadBalancer,
   },
   {
     id: 'riddle',

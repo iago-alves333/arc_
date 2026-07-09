@@ -75,8 +75,7 @@ quebra-maldicao/
 │       ├── model/                    # WorkChunk, ConnectedStudent, ChunkStatus
 │       └── service/                  # GameService (Job Tracker)
 │
-├── nginx.conf                        # Configuração nginx para proxy reverso
-├── vite.config.js                    # Config Vite (HMR desabilitado para ngrok)
+├── vite.config.js                    # Config Vite 
 └── package.json
 ```
 
