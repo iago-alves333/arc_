@@ -17,9 +17,9 @@ function getWebSocketUrl() {
   }
 
   // Acesso via ngrok/domínio externo -> usar o proxy reverso do nginx
-  // O nginx vai fazer proxy de /ws/ para o backend Spring Boot
+  // O nginx roteia /api/ → localhost:8080/ (já com suporte a WebSocket)
   const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${wsProtocol}//${host}/ws/ghost-network`
+  return `${wsProtocol}//${host}/api/ghost-network`
 }
 
 const WS_URL = getWebSocketUrl()
@@ -191,6 +191,7 @@ export default function Phase2Distributed({ playerName }) {
   const terminalRef = useRef(null)
   const wsRef = useRef(null)
   const reconnectTimeoutRef = useRef(null)
+  const heartbeatRef = useRef(null)
   const alunoIdRef = useRef(null)
   const charsetRef = useRef('abcdefghijklmnopqrstuvwxyz')
   const comprimentoRef = useRef(8)
@@ -224,6 +225,14 @@ export default function Phase2Distributed({ playerName }) {
         addLog('✓ Conexão WebSocket estabelecida', 'success')
 
         ws.send(JSON.stringify({ tipo: 'REGISTAR', nome: playerName }))
+
+        // Heartbeat para manter conexão viva em abas de fundo
+        if (heartbeatRef.current) clearInterval(heartbeatRef.current)
+        heartbeatRef.current = setInterval(() => {
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ tipo: 'PING' }))
+          }
+        }, 20000)
       }
 
       ws.onmessage = (event) => {
@@ -306,6 +315,13 @@ export default function Phase2Distributed({ playerName }) {
           }, 2000)
           break
 
+        // Mensagens de lobby — ignorar silenciosamente na fase distribuída
+        case 'REGISTO_LOBBY':
+        case 'LOBBY_ATUALIZADO':
+        case 'MUDAR_ESTADO':
+        case 'PONG':
+          break
+
         default:
           addLog(`Mensagem: ${data.tipo}`, 'system')
       }
@@ -355,6 +371,7 @@ export default function Phase2Distributed({ playerName }) {
 
     return () => {
       isMounted = false
+      if (heartbeatRef.current) clearInterval(heartbeatRef.current)
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current)
       if (wsRef.current) wsRef.current.close()
     }
