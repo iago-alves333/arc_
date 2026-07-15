@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 // Simulates the typing effect for the terminal boot sequence
 function useTypewriter(lines, speed = 30, lineDelay = 150) {
@@ -53,7 +53,32 @@ const BOOT_LINES = [
 export default function LoginScreen({ onLogin }) {
   const [name, setName] = useState('')
   const [shake, setShake] = useState(false)
+  const [adminMode, setAdminMode] = useState(false)
   const { displayedLines, done } = useTypewriter(BOOT_LINES)
+
+  // ─── Mecanismo oculto de Admin ───────────────────────────
+  // Triple-click rápido (< 600ms entre cliques) no título
+  // "interceptor — CipherNet" ativa/desativa o modo Admin.
+  const clickTimesRef = useRef([])
+
+  const handleTitleClick = () => {
+    const now = Date.now()
+    const times = clickTimesRef.current
+
+    // Adicionar timestamp do clique
+    times.push(now)
+
+    // Manter apenas os últimos 3 cliques
+    if (times.length > 3) {
+      times.shift()
+    }
+
+    // Verificar se temos 3 cliques rápidos (< 600ms entre o primeiro e o terceiro)
+    if (times.length === 3 && (times[2] - times[0]) < 600) {
+      setAdminMode(prev => !prev)
+      clickTimesRef.current = [] // reset
+    }
+  }
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -62,7 +87,7 @@ export default function LoginScreen({ onLogin }) {
       setTimeout(() => setShake(false), 500)
       return
     }
-    onLogin(name.trim())
+    onLogin(name.trim(), adminMode)
   }
 
   return (
@@ -72,8 +97,11 @@ export default function LoginScreen({ onLogin }) {
         {/* Terminal window */}
         <div className="bg-term-surface border border-term-border rounded-lg overflow-hidden shadow-2xl shadow-black/50">
           
-          {/* Title bar */}
-          <div className="bg-term-card px-4 py-2.5 flex items-center gap-3 border-b border-term-border">
+          {/* Title bar — clicável para ativar Admin (triple-click) */}
+          <div
+            className="bg-term-card px-4 py-2.5 flex items-center gap-3 border-b border-term-border cursor-default select-none"
+            onClick={handleTitleClick}
+          >
             <div className="flex gap-1.5">
               <div className="w-3 h-3 rounded-full bg-term-red/80" />
               <div className="w-3 h-3 rounded-full bg-term-amber/80" />
@@ -110,6 +138,16 @@ export default function LoginScreen({ onLogin }) {
             {/* Login prompt — appears after boot sequence */}
             {done && (
               <form onSubmit={handleSubmit} className="mt-4 animate-fade-in">
+
+                {/* Admin mode indicator — sutil mas visível para o professor */}
+                {adminMode && (
+                  <div className="mb-3 px-2 py-1.5 border border-term-amber/30 rounded bg-term-amber/5 animate-fade-in">
+                    <p className="text-[10px] text-term-amber">
+                      ⚡ Modo Admin ativo — você controlará o fluxo do jogo.
+                    </p>
+                  </div>
+                )}
+
                 <div className="mb-4">
                   <label htmlFor="investigator-name" className="text-term-muted text-xs block mb-2">
                     &gt; Digite seu codinome de operador:
@@ -142,9 +180,13 @@ export default function LoginScreen({ onLogin }) {
                   type="submit"
                   id="btn-enter-session"
                   disabled={name.trim().length < 1}
-                  className="w-full border border-term-green/50 text-term-green font-mono text-sm py-3 rounded transition-all duration-200 hover:bg-term-green/10 hover:border-term-green hover:shadow-[0_0_15px_rgba(57,255,20,0.15)] active:scale-[0.98] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:border-term-green/50 disabled:hover:shadow-none"
+                  className={`w-full border font-mono text-sm py-3 rounded transition-all duration-200 active:scale-[0.98] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:shadow-none ${
+                    adminMode
+                      ? 'border-term-amber/50 text-term-amber hover:bg-term-amber/10 hover:border-term-amber hover:shadow-[0_0_15px_rgba(255,179,0,0.15)] disabled:hover:border-term-amber/50'
+                      : 'border-term-green/50 text-term-green hover:bg-term-green/10 hover:border-term-green hover:shadow-[0_0_15px_rgba(57,255,20,0.15)] disabled:hover:border-term-green/50'
+                  }`}
                 >
-                  [ ENTRAR NA SESSÃO ]
+                  {adminMode ? '[ ENTRAR COMO ADMIN ]' : '[ ENTRAR NA SESSÃO ]'}
                 </button>
               </form>
             )}
