@@ -1,9 +1,11 @@
 package com.quebramaldicao.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.quebramaldicao.model.ChunkStatus;
 import com.quebramaldicao.model.ConnectedStudent;
+import com.quebramaldicao.model.GameState;
 import com.quebramaldicao.model.WorkChunk;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,6 +28,8 @@ import java.util.concurrent.ThreadLocalRandom;
  *
  * Cada aluno recebe uma senha alfanumérica aleatória de 8 caracteres
  * e deve quebrá-la via força bruta sobre o espaço de 36^8 ≈ 2.8 trilhões de combinações.
+ *
+ * Agora também gerencia o estado global da partida (lobby/sincronização).
  */
 @Service
 public class GameService {
@@ -58,6 +62,13 @@ public class GameService {
 
     /** Tamanho de cada chunk */
     private long chunkSize;
+
+    // =====================================================
+    // Estado Global da Partida
+    // =====================================================
+
+    /** Estado atual da partida — controlado pelo Admin. */
+    private volatile GameState estadoPartida = GameState.LOBBY_INICIAL;
 
     // =====================================================
     // Estado em memória (thread-safe)
@@ -143,12 +154,17 @@ public class GameService {
     }
 
     // =====================================================
-    // Gestão de Sessões
+    // Gestão de Sessões (com suporte a Admin)
     // =====================================================
 
-    public String registarAluno(WebSocketSession session, String nome) {
+    /**
+     * Regista um aluno (ou Admin) no jogo.
+     * @param isAdmin true se o jogador ativou o modo Admin no frontend
+     */
+    public String registarAluno(WebSocketSession session, String nome, boolean isAdmin) {
         String alunoId = UUID.randomUUID().toString();
         ConnectedStudent student = new ConnectedStudent(alunoId, nome, session);
+        student.setAdmin(isAdmin);
 
         // Gerar senha alfanumérica aleatória para este aluno
         String[] senha = gerarSenhaAleatoria();
@@ -160,25 +176,153 @@ public class GameService {
 
         students.put(session.getId(), student);
 
-        log.info(" Aluno conectado: {} (ID: {}) — Senha: '{}' — Total nós: {}",
-                nome, alunoId, senha[1], students.size());
+        log.info("✦ {} conectado: {} (ID: {}) — Senha: '{}' — Total nós: {}",
+                isAdmin ? "ADMIN" : "Aluno", nome, alunoId, senha[1], students.size());
 
-        enviarParaSessao(session, criarMensagemRegisto(student));
-        broadcastEstadoGlobal();
+        // Enviar confirmação individual com o estado atual da partida
+        enviarParaSessao(session, criarMensagemRegistoLobby(student));
+
+        // Se estamos na fase distribuída, enviar também REGISTO_CONFIRMADO
+        // para que o Phase2Distributed possa iniciar o trabalho de força bruta
+        if (estadoPartida == GameState.SISTEMAS_DISTRIBUIDOS) {
+            enviarParaSessao(session, criarMensagemRegisto(student));
+        }
+
+        // Broadcast atualização do lobby para todos
+        broadcastLobbyAtualizado();
 
         return alunoId;
     }
 
+    /** Mantém compatibilidade com o método antigo (sem flag admin). */
+    public String registarAluno(WebSocketSession session, String nome) {
+        return registarAluno(session, nome, false);
+    }
+
     public void removerAluno(WebSocketSession session) {
-        ConnectedStudent student = students.remove(session.getId());
-        if (student != null) {
-            log.info(" Aluno desconectado: {} — Restam: {}", student.getNome(), students.size());
-            broadcastEstadoGlobal();
+        ConnectedStudent student = students.get(session.getId());
+        if (student == null) return;
+
+        // Na fase distribuída, o lobby WS fecha e o Phase2 WS reconecta logo a seguir.
+        // Não remover o aluno para evitar "0 nós" transitório — o Phase2 vai
+        // re-registar com uma nova sessão imediatamente.
+        if (estadoPartida == GameState.SISTEMAS_DISTRIBUIDOS) {
+            log.info("✦ Sessão lobby fechada (fase distribuída — não removido): {}", student.getNome());
+            students.remove(session.getId());
+            // Sem broadcast — evita flicker de "0 nós"
+            return;
         }
+
+        students.remove(session.getId());
+        log.info("✦ Aluno desconectado: {} — Restam: {}", student.getNome(), students.size());
+        broadcastLobbyAtualizado();
     }
 
     public ConnectedStudent obterAluno(WebSocketSession session) {
         return students.get(session.getId());
+    }
+
+    // =====================================================
+    // Atualização de Fase e Heartbeat
+    // =====================================================
+
+    /**
+     * Atualiza a fase/tela atual de um aluno (para monitoramento do Admin).
+     */
+    public void atualizarFase(WebSocketSession session, String fase) {
+        ConnectedStudent student = students.get(session.getId());
+        if (student != null) {
+            student.setFaseAtual(fase);
+            broadcastLobbyAtualizado();
+        }
+    }
+
+    /**
+     * Responde a um PING com PONG para manter a conexão viva.
+     */
+    public void handlePing(WebSocketSession session) {
+        enviarParaSessao(session, "{\"tipo\":\"PONG\"}");
+    }
+
+    // =====================================================
+    // Controle de Estado Global (Admin)
+    // =====================================================
+
+    /**
+     * Admin inicia os minijogos: LOBBY_INICIAL → JOGANDO_MINIGAMES.
+     * Faz broadcast para todos os clientes mudarem de tela.
+     */
+    public synchronized void iniciarMinigames(WebSocketSession adminSession) {
+        ConnectedStudent admin = students.get(adminSession.getId());
+        if (admin == null || !admin.isAdmin()) {
+            log.warn(" Tentativa de iniciar minijogos por não-admin: {}", adminSession.getId());
+            return;
+        }
+
+        if (estadoPartida != GameState.LOBBY_INICIAL) {
+            log.warn(" Estado inválido para iniciar minijogos: {}", estadoPartida);
+            return;
+        }
+
+        estadoPartida = GameState.JOGANDO_MINIGAMES;
+        log.info(" MINIJOGOS INICIADOS pelo Admin {} — {} alunos", admin.getNome(), students.size());
+
+        broadcastMudarEstado(GameState.JOGANDO_MINIGAMES);
+    }
+
+    /**
+     * Um aluno concluiu os minijogos: entra no LOBBY_FINAL.
+     */
+    public synchronized void marcarMinigamesConcluidos(WebSocketSession session) {
+        ConnectedStudent student = students.get(session.getId());
+        if (student == null) return;
+
+        if (estadoPartida != GameState.JOGANDO_MINIGAMES) {
+            log.warn(" Aluno {} tentou concluir minigames fora do estado correto: {}",
+                    student.getNome(), estadoPartida);
+            return;
+        }
+
+        student.setMinigamesConcluidos(true);
+        log.info("✓ {} concluiu os minijogos — {}/{} concluíram",
+                student.getNome(), contarMinigamesConcluidos(), students.size());
+
+        // Enviar para o aluno que ele agora está no lobby final
+        enviarParaSessao(session, criarMensagemMudarEstado(GameState.LOBBY_FINAL));
+
+        // Broadcast atualização do lobby para todos (Admin vê quem terminou)
+        broadcastLobbyAtualizado();
+    }
+
+    /**
+     * Admin inicia a fase distribuída: JOGANDO_MINIGAMES/LOBBY_FINAL → SISTEMAS_DISTRIBUIDOS.
+     * Faz broadcast para todos os clientes montarem Phase2Distributed.
+     */
+    public synchronized void iniciarDistribuido(WebSocketSession adminSession) {
+        ConnectedStudent admin = students.get(adminSession.getId());
+        if (admin == null || !admin.isAdmin()) {
+            log.warn(" Tentativa de iniciar distribuído por não-admin: {}", adminSession.getId());
+            return;
+        }
+
+        // Aceitar transição tanto de JOGANDO_MINIGAMES quanto de LOBBY_FINAL
+        if (estadoPartida != GameState.JOGANDO_MINIGAMES && estadoPartida != GameState.LOBBY_FINAL) {
+            log.warn(" Estado inválido para iniciar distribuído: {}", estadoPartida);
+            return;
+        }
+
+        estadoPartida = GameState.SISTEMAS_DISTRIBUIDOS;
+        log.info("🌐 SISTEMAS DISTRIBUÍDOS INICIADOS pelo Admin {} — {} alunos",
+                admin.getNome(), students.size());
+
+        broadcastMudarEstado(GameState.SISTEMAS_DISTRIBUIDOS);
+    }
+
+    /**
+     * Retorna o estado atual da partida.
+     */
+    public GameState getEstadoPartida() {
+        return estadoPartida;
     }
 
     // =====================================================
@@ -247,7 +391,7 @@ public class GameService {
                 student.incrementarLotesProcessados();
                 student.setSenhaEncontrada(true);
 
-                log.info("PALAVRA ENCONTRADA por {} — '{}'",
+                log.info(" PALAVRA ENCONTRADA por {} — '{}'",
                         student.getNome(), student.getDisplayPassword());
 
                 enviarParaSessao(session, criarMensagemVitoriaPessoal(student));
@@ -265,7 +409,7 @@ public class GameService {
             chunk.concluir();
             student.incrementarLotesProcessados();
 
-            log.info(" Lote {} de {} — Progresso: {}%",
+            log.info("✓ Lote {} de {} — Progresso: {}%",
                     chunkId, student.getNome(),
                     String.format("%.1f", student.calcularProgresso()));
 
@@ -327,20 +471,34 @@ public class GameService {
     }
 
     // =====================================================
+    // Contadores auxiliares
+    // =====================================================
+
+    private long contarMinigamesConcluidos() {
+        return students.values().stream()
+                .filter(ConnectedStudent::isMinigamesConcluidos)
+                .count();
+    }
+
+    // =====================================================
     // Reset do Jogo
     // =====================================================
 
     public synchronized void resetarJogo() {
+        estadoPartida = GameState.LOBBY_INICIAL;
+
         for (ConnectedStudent student : students.values()) {
             // Gerar nova senha aleatória para cada aluno
             String[] senha = gerarSenhaAleatoria();
             student.setTargetPassword(senha[0]);
             student.setDisplayPassword(senha[1]);
             student.setSenhaEncontrada(false);
+            student.setMinigamesConcluidos(false);
             criarChunksParaAluno(student);
         }
-        log.info("🔄 Jogo reiniciado — {} alunos com novas senhas", students.size());
-        broadcastEstadoGlobal();
+        log.info(" Jogo reiniciado — {} alunos com novas senhas", students.size());
+        broadcastMudarEstado(GameState.LOBBY_INICIAL);
+        broadcastLobbyAtualizado();
     }
 
     // =====================================================
@@ -366,7 +524,61 @@ public class GameService {
     }
 
     // =====================================================
-    // Construção de Mensagens JSON
+    // Construção de Mensagens JSON — Lobby
+    // =====================================================
+
+    /**
+     * Mensagem de confirmação de registo no lobby (enviada apenas ao aluno que se registou).
+     */
+    private String criarMensagemRegistoLobby(ConnectedStudent student) {
+        ObjectNode msg = objectMapper.createObjectNode();
+        msg.put("tipo", "REGISTO_LOBBY");
+        msg.put("alunoId", student.getId());
+        msg.put("nome", student.getNome());
+        msg.put("isAdmin", student.isAdmin());
+        msg.put("estadoPartida", estadoPartida.name());
+        return msg.toString();
+    }
+
+    /**
+     * Broadcast: atualização do lobby (lista de jogadores, estado da partida).
+     * Enviado a TODOS sempre que alguém entra/sai ou muda o estado.
+     */
+    private String criarMensagemLobbyAtualizado() {
+        ObjectNode msg = objectMapper.createObjectNode();
+        msg.put("tipo", "LOBBY_ATUALIZADO");
+        msg.put("estadoPartida", estadoPartida.name());
+        msg.put("totalJogadores", students.size());
+        msg.put("minigamesConcluidos", contarMinigamesConcluidos());
+
+        ArrayNode jogadores = objectMapper.createArrayNode();
+        for (ConnectedStudent s : students.values()) {
+            ObjectNode jogador = objectMapper.createObjectNode();
+            jogador.put("id", s.getId());
+            jogador.put("nome", s.getNome());
+            jogador.put("isAdmin", s.isAdmin());
+            jogador.put("minigamesConcluidos", s.isMinigamesConcluidos());
+            jogador.put("senhaEncontrada", s.isSenhaEncontrada());
+            jogador.put("faseAtual", s.getFaseAtual());
+            jogadores.add(jogador);
+        }
+        msg.set("jogadores", jogadores);
+
+        return msg.toString();
+    }
+
+    /**
+     * Broadcast: mudança de estado global da partida.
+     */
+    private String criarMensagemMudarEstado(GameState novoEstado) {
+        ObjectNode msg = objectMapper.createObjectNode();
+        msg.put("tipo", "MUDAR_ESTADO");
+        msg.put("novoEstado", novoEstado.name());
+        return msg.toString();
+    }
+
+    // =====================================================
+    // Construção de Mensagens JSON — Jogo Distribuído
     // =====================================================
 
     private String criarMensagemRegisto(ConnectedStudent student) {
@@ -462,28 +674,40 @@ public class GameService {
         broadcast(criarMensagemAtualizacaoGlobal());
     }
 
+    public void broadcastLobbyAtualizado() {
+        broadcast(criarMensagemLobbyAtualizado());
+    }
+
+    private void broadcastMudarEstado(GameState novoEstado) {
+        broadcast(criarMensagemMudarEstado(novoEstado));
+    }
+
     // =====================================================
     // Getters para REST
     // =====================================================
 
     public Map<String, Object> getEstadoCompleto() {
         Map<String, Object> estado = new LinkedHashMap<>();
+        estado.put("estadoPartida", estadoPartida.name());
         estado.put("totalAlunos", students.size());
         estado.put("senhasTipo", "alfanumérica aleatória 8 chars");
         estado.put("totalCombinacoes", String.format("%,d", totalSearchSpace));
         estado.put("chunksPerAluno", numChunks);
         estado.put("progressoGlobal", Math.round(calcularProgressoGlobal() * 10.0) / 10.0);
         estado.put("alunosConcluidos", contarAlunosConcluidos());
+        estado.put("minigamesConcluidos", contarMinigamesConcluidos());
 
         List<Map<String, Object>> alunosList = new ArrayList<>();
         for (ConnectedStudent s : students.values()) {
             Map<String, Object> aluno = new LinkedHashMap<>();
             aluno.put("id", s.getId());
             aluno.put("nome", s.getNome());
+            aluno.put("isAdmin", s.isAdmin());
             aluno.put("palavra", s.getDisplayPassword());
             aluno.put("lotesProcessados", s.getLotesProcessados());
             aluno.put("progresso", Math.round(s.calcularProgresso() * 10.0) / 10.0);
             aluno.put("encontrada", s.isSenhaEncontrada());
+            aluno.put("minigamesConcluidos", s.isMinigamesConcluidos());
             alunosList.add(aluno);
         }
         estado.put("alunos", alunosList);
