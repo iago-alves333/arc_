@@ -4,12 +4,14 @@ Aplicação educacional interativa que ensina conceitos de **Criptografia** e **
 
 ## Conceito
 
-Os alunos acessam a aplicação pelo celular e percorrem quatro fases:
+Os alunos acessam a aplicação pelo celular e percorrem fases sincronizadas pelo professor (Admin):
 
 1. **Login** — Tela de entrada com nome do aluno.
-2. **Fase 1 — Cifra de César** — Decifram uma mensagem codificada ajustando um slider de deslocamento. Cada aluno recebe uma **palavra e shift aleatórios**, tornando o desafio único.
-3. **Mini-Enigmas Aleatórios** — 3 desafios sorteados de um pool (Decodificação Hex, Enigma Macabro, Lógica de Sequência) que devem ser resolvidos em sequência.
-4. **Fase 2 — Força Bruta Distribuída** — Os celulares da turma conectam-se via WebSocket ao servidor Java e recebem, cada um, uma **senha alfanumérica aleatória de 8 caracteres** para quebrar por força bruta, simulando um sistema distribuído real.
+2. **Lobby Inicial** — Sala de espera onde todos aguardam o professor iniciar.
+3. **Fase 1 — Cifra de César** — Decifram uma mensagem codificada ajustando um slider de deslocamento. Cada aluno recebe uma **palavra e shift aleatórios**.
+4. **Mini-Enigmas Aleatórios** — 3 desafios sorteados de um pool (Load Balancer, Enigma Macabro, Lógica de Sequência).
+5. **Lobby Final** — Sala de espera pós-minijogos onde alunos aguardam os colegas terminarem.
+6. **Fase 2 — Força Bruta Distribuída** — Os celulares conectam-se via WebSocket ao servidor Java e recebem, cada um, uma **senha alfanumérica aleatória de 8 caracteres** para quebrar, simulando um sistema distribuído real.
 
 ## Arquitetura
 
@@ -20,6 +22,13 @@ Os alunos acessam a aplicação pelo celular e percorrem quatro fases:
 │   Porta 5173        │   /ghost-network          │  Porta 8080           │
 └─────────────────────┘                           └──────────────────────┘
        Alunos                                      Master Node
+```
+
+### Fluxo de Estados (controlado pelo Admin)
+
+```
+LOBBY_INICIAL  ──► JOGANDO_MINIGAMES  ──► LOBBY_FINAL  ──► SISTEMAS_DISTRIBUIDOS
+   (Admin: Iniciar)                       (Admin: Iniciar Quebra)
 ```
 
 ## Como Executar
@@ -47,21 +56,35 @@ npm run dev
 
 Acesse `http://localhost:5173` no browser ou celular (mesma rede Wi-Fi).
 
+## Modo Admin (Professor)
+
+O professor controla o fluxo do jogo através de um mecanismo oculto:
+
+1. Na tela de login, **clique 3 vezes rapidamente** (< 600ms) no título `interceptor — CipherNet` (barra superior do terminal).
+2. Um banner amarelo `⚡ Modo Admin ativo` aparece e o botão muda para `[ ENTRAR COMO ADMIN ]`.
+3. No **Lobby Inicial**, o Admin vê o botão `Iniciar Minijogos`.
+4. No **Lobby Final**, o Admin vê quem já terminou e tem o botão `Iniciar Quebra de Senha`.
+
+> O mecanismo é invisível para os alunos — não há botões visíveis.
+
 ## Estrutura do Projeto
 
 ```
 quebra-maldicao/
 ├── src/                              # Frontend React
 │   ├── components/
-│   │   ├── LoginScreen.jsx           # Tela de entrada (nome do aluno)
-│   │   ├── Phase1Cipher.jsx          # Fase 1: Cifra de César (palavra + shift aleatórios)
+│   │   ├── LoginScreen.jsx           # Login + mecanismo oculto de Admin
+│   │   ├── LobbyScreen.jsx          # Lobby inicial (lista de alunos + botão Admin)
+│   │   ├── Phase1Cipher.jsx          # Fase 1: Cifra de César
 │   │   ├── RandomChallengeManager.jsx# Gerenciador de desafios aleatórios
+│   │   ├── WaitingScreen.jsx         # Lobby final (pós-minijogos)
 │   │   ├── Phase2Distributed.jsx     # Fase 2: Força bruta distribuída
 │   │   └── challenges/              # Mini-enigmas modulares
-│   │       ├── ChallengeHexDecode.jsx    # Decodificação hexadecimal
-│   │       ├── ChallengeRiddle.jsx       # Enigma temático
-│   │       └── ChallengeTerminalLogic.jsx# Lógica de sequência
-│   ├── App.jsx                       # Router de fases
+│   │       ├── ChallengeHexDecode.jsx
+│   │       ├── ChallengeLoadBalancer.jsx
+│   │       ├── ChallengeRiddle.jsx
+│   │       └── ChallengeTerminalLogic.jsx
+│   ├── App.jsx                       # Router + WebSocket central de lobby
 │   ├── index.css                     # Estilos globais
 │   └── main.jsx                      # Entry point
 │
@@ -72,12 +95,32 @@ quebra-maldicao/
 │       ├── config/                   # WebSocket + CORS
 │       ├── controller/               # REST: /api/health, /api/estado, /api/reset
 │       ├── handler/                  # WebSocket message router
-│       ├── model/                    # WorkChunk, ConnectedStudent, ChunkStatus
-│       └── service/                  # GameService (Job Tracker)
+│       ├── model/                    # WorkChunk, ConnectedStudent, ChunkStatus, GameState
+│       └── service/                  # GameService (Job Tracker + Lobby Manager)
 │
-├── vite.config.js                    # Config Vite 
+├── test-ws.js                        # Teste de carga k6 (com suporte a lobby)
+├── vite.config.js
 └── package.json
 ```
+
+## Protocolo WebSocket — Mensagens de Lobby
+
+### Cliente → Servidor
+
+| Tipo | Payload | Quem |
+|---|---|---|
+| `REGISTAR` | `{ nome, isAdmin }` | Todos |
+| `ADMIN_INICIAR_MINIGAMES` | `{}` | Admin |
+| `MINIGAMES_CONCLUIDOS` | `{}` | Aluno |
+| `ADMIN_INICIAR_DISTRIBUIDO` | `{}` | Admin |
+
+### Servidor → Cliente
+
+| Tipo | Payload | Destino |
+|---|---|---|
+| `REGISTO_LOBBY` | `{ alunoId, nome, isAdmin, estadoPartida }` | Individual |
+| `LOBBY_ATUALIZADO` | `{ jogadores[], totalJogadores, minigamesConcluidos }` | Broadcast |
+| `MUDAR_ESTADO` | `{ novoEstado }` | Broadcast |
 
 ## Senhas Alfanuméricas
 
@@ -94,11 +137,24 @@ O `RandomChallengeManager` sorteia 3 desafios de um pool modular:
 
 | Desafio | Descrição |
 |---|---|
-| **Decodificação Hex** | Converter valores hexadecimais para texto |
+| **Load Balancer** | Distribuir requisições entre servidores |
 | **Enigma Macabro** | Resolver charadas temáticas |
 | **Lógica de Sequência** | Completar padrões lógicos no terminal |
 
-Para adicionar um novo desafio, basta criar o componente em `src/components/challenges/` (com prop `onSolve`) e registrá-lo no array `CHALLENGE_REGISTRY` do `RandomChallengeManager.jsx`.
+Para adicionar um novo desafio, crie o componente em `src/components/challenges/` (com prop `onSolve`) e registre-o no `CHALLENGE_REGISTRY` do `RandomChallengeManager.jsx`.
+
+## Teste de Carga (k6)
+
+```bash
+# Teste padrão (alunos sem lobby)
+k6 run test-ws.js
+
+# Teste com fluxo completo de lobby (1 Admin + alunos)
+k6 run -e SIMULATE_ADMIN=true test-ws.js
+
+# URL customizada
+k6 run -e WS_URL=wss://meu-dominio.com/api/ghost-network test-ws.js
+```
 
 ## Configuração
 
@@ -114,7 +170,8 @@ Editável em `backend/src/main/resources/application.properties`:
 
 - **Anti-batota**: O servidor valida todas as respostas — não aceita senhas incorretas.
 - **Estado centralizado**: O progresso e o resultado pertencem exclusivamente ao servidor Java.
-- **Tolerância a falhas**: Lotes sem resposta no tempo configurado voltam à fila para reatribuição.
+- **Tolerância a falhas**: Lotes sem resposta no tempo configurado voltam à fila.
+- **Admin protegido**: Apenas sessões com flag `isAdmin` podem mudar o estado da partida.
 
 ## Tecnologias
 
@@ -124,3 +181,4 @@ Editável em `backend/src/main/resources/application.properties`:
 | Backend | Java 17 · Spring Boot 3.2 · WebSocket |
 | Comunicação | WebSocket JSON (`/ghost-network`) |
 | Armazenamento | Em memória (`ConcurrentHashMap`) |
+| Testes de Carga | k6 |
