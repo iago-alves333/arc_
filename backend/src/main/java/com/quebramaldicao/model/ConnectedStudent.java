@@ -17,6 +17,14 @@ public class ConnectedStudent {
     private final Instant conectadoEm;
     private int lotesProcessados;
 
+    // --- Controle de lobby/sincronização ---
+    /** Indica se este jogador é o Admin (professor). */
+    private boolean admin;
+    /** Indica se este jogador já concluiu os minijogos (Fase 1 + challenges). */
+    private boolean minigamesConcluidos;
+    /** Fase/tela atual em que o jogador se encontra. */
+    private String faseAtual = "LOBBY_INICIAL";
+
     // --- Estado individual do jogo ---
     /** Palavra normalizada para comparação (ex: "maldicao") */
     private String targetPassword;
@@ -31,6 +39,8 @@ public class ConnectedStudent {
         this.session = session;
         this.conectadoEm = Instant.now();
         this.lotesProcessados = 0;
+        this.admin = false;
+        this.minigamesConcluidos = false;
         this.senhaEncontrada = false;
         this.chunks = new CopyOnWriteArrayList<>();
     }
@@ -85,6 +95,30 @@ public class ConnectedStudent {
 
     public void setSenhaEncontrada(boolean senhaEncontrada) {
         this.senhaEncontrada = senhaEncontrada;
+    }
+
+    public boolean isAdmin() {
+        return admin;
+    }
+
+    public void setAdmin(boolean admin) {
+        this.admin = admin;
+    }
+
+    public boolean isMinigamesConcluidos() {
+        return minigamesConcluidos;
+    }
+
+    public void setMinigamesConcluidos(boolean minigamesConcluidos) {
+        this.minigamesConcluidos = minigamesConcluidos;
+    }
+
+    public String getFaseAtual() {
+        return faseAtual;
+    }
+
+    public void setFaseAtual(String faseAtual) {
+        this.faseAtual = faseAtual;
     }
 
     /**

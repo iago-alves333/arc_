@@ -16,7 +16,14 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
  * Handler WebSocket que processa todas as mensagens dos clientes React.
  *
  * Tipos de mensagem suportados:
- * - REGISTAR:          Aluno entra no jogo com um nome
+ *
+ * --- Lobby/Sincronização ---
+ * - REGISTAR:                   Aluno entra no jogo com um nome (+ flag isAdmin)
+ * - ADMIN_INICIAR_MINIGAMES:    Admin inicia os minijogos (LOBBY_INICIAL → JOGANDO_MINIGAMES)
+ * - MINIGAMES_CONCLUIDOS:       Aluno reporta que terminou os minijogos
+ * - ADMIN_INICIAR_DISTRIBUIDO:  Admin inicia a fase distribuída (→ SISTEMAS_DISTRIBUIDOS)
+ *
+ * --- Jogo Distribuído ---
  * - PEDIR_TRABALHO:    Aluno pede um lote de trabalho
  * - RESULTADO_LOTE:    Aluno reporta resultado de um lote processado
  * - SENHA_ENCONTRADA:  Aluno afirma ter encontrado a senha (validado pelo servidor)
@@ -40,7 +47,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
-        log.info(" Nova conexão WebSocket: {}", session.getId());
+        log.info("✦ Nova conexão WebSocket: {}", session.getId());
         // O registo real acontece quando o cliente envia REGISTAR com o nome
     }
 
@@ -71,11 +78,22 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
             log.debug("Mensagem recebida [{}]: tipo={}", session.getId(), tipo);
 
             switch (tipo) {
-                case "REGISTAR" -> handleRegistar(session, json);
-                case "PEDIR_TRABALHO" -> handlePedirTrabalho(session, json);
-                case "RESULTADO_LOTE" -> handleResultadoLote(session, json);
+                // --- Lobby/Sincronização ---
+                case "REGISTAR"                  -> handleRegistar(session, json);
+                case "ADMIN_INICIAR_MINIGAMES"   -> handleAdminIniciarMinigames(session);
+                case "MINIGAMES_CONCLUIDOS"      -> handleMinigamesConcluidos(session);
+                case "ADMIN_INICIAR_DISTRIBUIDO" -> handleAdminIniciarDistribuido(session);
+                case "ATUALIZAR_FASE"            -> handleAtualizarFase(session, json);
+
+                // --- Heartbeat ---
+                case "PING"             -> gameService.handlePing(session);
+
+                // --- Jogo Distribuído ---
+                case "PEDIR_TRABALHO"   -> handlePedirTrabalho(session, json);
+                case "RESULTADO_LOTE"   -> handleResultadoLote(session, json);
                 case "SENHA_ENCONTRADA" -> handleSenhaEncontrada(session, json);
-                case "RESET_JOGO" -> handleResetJogo(session);
+                case "RESET_JOGO"       -> handleResetJogo(session);
+
                 default -> log.warn("⚠ Tipo de mensagem desconhecido: '{}' de {}", tipo, session.getId());
             }
 
@@ -85,19 +103,69 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
     }
 
     // =====================================================
-    // Handlers individuais por tipo de mensagem
+    // Handlers — Lobby/Sincronização
     // =====================================================
 
     /**
      * REGISTAR — O aluno envia o seu nome para se registar no jogo.
+     * Agora aceita uma flag opcional "isAdmin".
      *
      * Payload esperado:
-     * { "tipo": "REGISTAR", "nome": "João" }
+     * { "tipo": "REGISTAR", "nome": "João", "isAdmin": false }
      */
     private void handleRegistar(WebSocketSession session, JsonNode json) {
         String nome = json.has("nome") ? json.get("nome").asText("Anónimo") : "Anónimo";
-        gameService.registarAluno(session, nome);
+        boolean isAdmin = json.has("isAdmin") && json.get("isAdmin").asBoolean(false);
+        gameService.registarAluno(session, nome, isAdmin);
     }
+
+    /**
+     * ADMIN_INICIAR_MINIGAMES — O Admin inicia os minijogos.
+     *
+     * Payload esperado:
+     * { "tipo": "ADMIN_INICIAR_MINIGAMES" }
+     */
+    private void handleAdminIniciarMinigames(WebSocketSession session) {
+        log.info("🎮 Admin solicitou início dos minijogos: {}", session.getId());
+        gameService.iniciarMinigames(session);
+    }
+
+    /**
+     * MINIGAMES_CONCLUIDOS — O aluno reporta que terminou todos os minijogos.
+     *
+     * Payload esperado:
+     * { "tipo": "MINIGAMES_CONCLUIDOS" }
+     */
+    private void handleMinigamesConcluidos(WebSocketSession session) {
+        log.info("✓ Aluno concluiu minigames: {}", session.getId());
+        gameService.marcarMinigamesConcluidos(session);
+    }
+
+    /**
+     * ADMIN_INICIAR_DISTRIBUIDO — O Admin inicia a fase de sistemas distribuídos.
+     *
+     * Payload esperado:
+     * { "tipo": "ADMIN_INICIAR_DISTRIBUIDO" }
+     */
+    private void handleAdminIniciarDistribuido(WebSocketSession session) {
+        log.info("🌐 Admin solicitou início dos sistemas distribuídos: {}", session.getId());
+        gameService.iniciarDistribuido(session);
+    }
+
+    /**
+     * ATUALIZAR_FASE — O cliente reporta em qual tela/fase se encontra.
+     *
+     * Payload esperado:
+     * { "tipo": "ATUALIZAR_FASE", "fase": "FASE_1_CIFRA" }
+     */
+    private void handleAtualizarFase(WebSocketSession session, JsonNode json) {
+        String fase = json.has("fase") ? json.get("fase").asText("") : "";
+        gameService.atualizarFase(session, fase);
+    }
+
+    // =====================================================
+    // Handlers — Jogo Distribuído
+    // =====================================================
 
     /**
      * PEDIR_TRABALHO — O aluno pede um lote de trabalho para processar.
@@ -161,7 +229,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
      * { "tipo": "RESET_JOGO" }
      */
     private void handleResetJogo(WebSocketSession session) {
-        log.info(" Reset do jogo solicitado por {}", session.getId());
+        log.info("🔄 Reset do jogo solicitado por {}", session.getId());
         gameService.resetarJogo();
     }
 }
