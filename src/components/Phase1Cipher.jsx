@@ -16,15 +16,15 @@ function caesarShift(text, shift) {
     .join('')
 }
 
-// ─── Pool de palavras temáticas (todas UPPERCASE, sem acentos) ─────
+// ─── Pool de palavras do dia a dia (todas UPPERCASE, sem acentos) ──
 // Cada aluno receberá uma palavra aleatória com um shift aleatório
 const WORD_POOL = [
-  'MALDICAO', 'FANTASMA', 'SOMBRIAS', 'MALDITOS', 'CAVEIRAS',
-  'CRIPTADO', 'SEGREDOS', 'CIFRA', 'ABISMO', 'ENIGMA',
-  'LABIRINTO', 'ESPECTRO', 'TREVAS', 'SINISTRA', 'MISTERIO',
-  'VAMPIROS', 'FANTASMA', 'HORRORES', 'OBSCUROS', 'TENEBROSO',
-  'DEMONIO', 'PESADELO', 'SINISTRO', 'LOBISOMEM', 'BRUXARIA',
-  'SOMBRIO', 'CRIATURA', 'TORMENTO', 'INFERNAL', 'MACABROS',
+  'ABACAXI', 'CACHORRO', 'BICICLETA', 'TELEFONE', 'MOCHILA',
+  'CADERNO', 'TECLADO', 'JANELA', 'SAPATO', 'GUITARRA',
+  'CELULAR', 'CAMISETA', 'RELOGIO', 'SORVETE', 'FUTEBOL',
+  'PIPOCA', 'COMPUTADOR', 'LARANJA', 'CHOCOLATE', 'TRAVESSEIRO',
+  'GELADEIRA', 'BORRACHA', 'CANETA', 'OCULOS', 'BERMUDA',
+  'CAPACETE', 'SABONETE', 'CAFETEIRA', 'LIMONADA', 'ESTANTE',
 ]
 
 /**

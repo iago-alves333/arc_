@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 
 // ─── Imports dos desafios ───────────────────────────────────
+import ChallengeHexDecode from './challenges/ChallengeHexDecode'
 import ChallengeLoadBalancer from './challenges/ChallengeLoadBalancer'
 import ChallengeRiddle from './challenges/ChallengeRiddle'
 import ChallengeTerminalLogic from './challenges/ChallengeTerminalLogic'
@@ -21,7 +22,7 @@ import ChallengeTerminalLogic from './challenges/ChallengeTerminalLogic'
  *    - onComplete: () => void  — callback ao completar todos.
  *
  * ──────────────────────────────────────────────────────────────
- *  🔧 COMO ADICIONAR UM NOVO DESAFIO NO FUTURO:
+ *   COMO ADICIONAR UM NOVO DESAFIO NO FUTURO:
  *
  *  1. Crie seu componente em `src/components/challenges/`.
  *     Ele DEVE receber a prop `onSolve: () => void`.
@@ -48,7 +49,7 @@ import ChallengeTerminalLogic from './challenges/ChallengeTerminalLogic'
 const CHALLENGE_REGISTRY = [
   {
     id: 'load-balancer',
-    name: 'Balanceador de Carga',
+    name: 'Load Balancer',
     component: ChallengeLoadBalancer,
   },
   {
@@ -62,7 +63,7 @@ const CHALLENGE_REGISTRY = [
     component: ChallengeTerminalLogic,
   },
   // ──────────────────────────────────────────────────────────
-  // 🆕 Adicione novos desafios aqui. Exemplo:
+  // Adicione novos desafios aqui. Exemplo:
   // {
   //   id: 'binary-decode',
   //   name: 'Decodificação Binária',
@@ -79,7 +80,7 @@ function shuffleAndPick(arr, count) {
   const shuffled = [...arr]
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1))
-    ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+      ;[shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
   }
   return shuffled.slice(0, count)
 }
@@ -185,13 +186,12 @@ export default function RandomChallengeManager({
             <div
               key={ch.id}
               title={ch.name}
-              className={`flex-1 h-1 rounded-full transition-all duration-300 ${
-                i < currentIndex
-                  ? 'bg-term-green shadow-[0_0_4px_rgba(57,255,20,0.4)]'
-                  : i === currentIndex
+              className={`flex-1 h-1 rounded-full transition-all duration-300 ${i < currentIndex
+                ? 'bg-term-green shadow-[0_0_4px_rgba(57,255,20,0.4)]'
+                : i === currentIndex
                   ? 'bg-term-amber animate-pulse-slow'
                   : 'bg-term-border'
-              }`}
+                }`}
             />
           ))}
         </div>
@@ -199,9 +199,8 @@ export default function RandomChallengeManager({
 
       {/* ── Componente do desafio ─────────────────────────── */}
       <div
-        className={`flex-1 transition-all duration-500 ${
-          transitioning ? 'opacity-0 translate-y-4' : 'opacity-100 translate-y-0'
-        }`}
+        className={`flex-1 transition-all duration-500 ${transitioning ? 'opacity-0 translate-y-4' : 'opacity-100 translate-y-0'
+          }`}
       >
         {/*
           key={currentChallenge.id} força o React a desmontar/remontar

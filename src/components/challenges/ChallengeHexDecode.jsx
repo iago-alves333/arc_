@@ -15,20 +15,20 @@ import { useState, useMemo } from 'react'
  * ══════════════════════════════════════════════════════════════
  */
 
-// ─── Banco de palavras temáticas ────────────────────────────
+// ─── Banco de palavras do dia a dia ─────────────────────────
 const WORD_BANK = [
-  'MALDICAO',
-  'SANGUE',
-  'RITUAL',
-  'SOMBRA',
-  'TREVAS',
-  'DEMONIO',
-  'ESPECTRO',
-  'CRIPTA',
-  'VENENO',
-  'FOGUEIRA',
-  'ABISMO',
-  'PACTO',
+  'COMPUTADOR',
+  'TECLADO',
+  'INTERNET',
+  'CELULAR',
+  'MOCHILA',
+  'CADERNO',
+  'SORVETE',
+  'FUTEBOL',
+  'GUITARRA',
+  'BICICLETA',
+  'CHOCOLATE',
+  'CAFETEIRA',
 ]
 
 /**

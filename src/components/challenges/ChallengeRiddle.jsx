@@ -15,65 +15,68 @@ import { useState, useMemo } from 'react'
  * ══════════════════════════════════════════════════════════════
  */
 
-// ─── Banco de enigmas macabros ──────────────────────────────
+// ─── Banco de charadas do dia a dia ─────────────────────────
 const RIDDLE_BANK = [
   {
     pergunta:
-      'Sou invocado em noites sem lua, carrego correntes que ninguém vê. ' +
-      'Meu nome ecoa nos corredores e faço o vivo estremecer. O que sou?',
-    resposta_correta: 'FANTASMA',
-    dica: 'Habita entre os vivos, mas não está vivo.',
+      'Qual é o objeto que te copia em tudo, mas não consegue falar?',
+    resposta_correta: 'ESPELHO',
+    dica: 'Você encontra um no banheiro toda manhã.',
   },
   {
     pergunta:
-      'Tenho dentes, mas não mordo. Tenho tampa, mas não sou panela. ' +
-      'Quem entra em mim nunca mais sai. O que sou?',
-    resposta_correta: 'CAIXAO',
-    dica: 'Uma cama para a eternidade.',
+      'Te sigo para todo lugar, mas quando a luz se apaga, eu desapareço. O que sou?',
+    resposta_correta: 'SOMBRA',
+    dica: 'Aparece quando a luz bate em você.',
   },
   {
     pergunta:
-      'Quanto mais me alimentam, mais eu cresço. Mas se me dão água, eu morro. ' +
-      'Nas fogueiras rituais, sou o mestre. O que sou?',
-    resposta_correta: 'FOGO',
-    dica: 'Elemento primordial de rituais ancestrais.',
+      'Tenho cidades, mas não tenho casas. Tenho montanhas, mas não tenho árvores. ' +
+      'Tenho água, mas não tenho peixes. O que sou?',
+    resposta_correta: 'MAPA',
+    dica: 'Representa o mundo em tamanho reduzido.',
   },
   {
     pergunta:
-      'Sou a primeira coisa que você vê ao fechar os olhos, ' +
-      'e a última ao abri-los numa cripta. Estou em toda parte, ' +
-      'mas desapareço com a luz. O que sou?',
-    resposta_correta: 'ESCURIDAO',
-    dica: 'O oposto do que te permite enxergar.',
+      'Quanto mais eu seco, mais molhada eu fico. O que sou?',
+    resposta_correta: 'TOALHA',
+    dica: 'Você usa depois do banho.',
   },
   {
     pergunta:
-      'Posso ser de prata ou de eclipse. Os lobos uivam para mim, ' +
-      'e as marés me obedecem. Nas noites de ritual, sou vigia silenciosa. O que sou?',
-    resposta_correta: 'LUA',
-    dica: 'Brilha no céu noturno, mas não produz luz própria.',
+      'Tem coroa mas não é rei, tem raiz mas não é planta. O que é?',
+    resposta_correta: 'DENTE',
+    dica: 'Você usa para mastigar a comida.',
   },
   {
     pergunta:
-      'Sem boca, eu grito. Sem olhos, eu choro. ' +
-      'Nasço da dor e morro no esquecimento. ' +
-      'Bruxas me carregam em frascos. O que sou?',
-    resposta_correta: 'LAGRIMA',
-    dica: 'Cai dos olhos quando a alma sangra.',
+      'Viajo o mundo inteiro, mas fico sempre preso no canto. O que sou?',
+    resposta_correta: 'SELO',
+    dica: 'Fica colado no envelope de uma carta.',
   },
   {
     pergunta:
-      'Caminho sem pernas, sussurro sem boca, ' +
-      'arrasto folhas mortas e apago velas de ritual. O que sou?',
-    resposta_correta: 'VENTO',
-    dica: 'Invisível, mas você sente minha presença.',
+      'Tem pescoço mas não tem cabeça. O que é?',
+    resposta_correta: 'GARRAFA',
+    dica: 'Você usa para guardar líquidos.',
   },
   {
     pergunta:
-      'Sou vermelha como o pecado, corro nas veias do inocente ' +
-      'e sou derramada nos pactos sombrios. O que sou?',
-    resposta_correta: 'SANGUE',
-    dica: 'Líquido vital que sela maldições.',
+      'Sempre cai mas nunca se machuca. O que é?',
+    resposta_correta: 'CHUVA',
+    dica: 'Cai do céu e molha tudo.',
+  },
+  {
+    pergunta:
+      'Tenho folhas, mas não sou árvore. Tenho lombada, mas não sou animal. O que sou?',
+    resposta_correta: 'LIVRO',
+    dica: 'Você encontra na biblioteca.',
+  },
+  {
+    pergunta:
+      'O que é que entra na água e não se molha?',
+    resposta_correta: 'SOMBRA',
+    dica: 'Não é um objeto físico.',
   },
 ]
 
@@ -155,9 +158,9 @@ export default function ChallengeRiddle({ onSolve }) {
       <div className="p-5 font-mono text-sm leading-relaxed">
         {/* Logs de contexto */}
         <div className="space-y-1 mb-5 text-xs">
-          <p className="text-term-cyan">&gt; Acessando cofre de enigmas...</p>
-          <p className="text-term-muted">&gt; Arquivo selado encontrado.</p>
-          <p className="text-term-red">⚠  Resolva o enigma para desbloquear o selo.</p>
+          <p className="text-term-cyan">&gt; Carregando banco de charadas...</p>
+          <p className="text-term-muted">&gt; Charada selecionada aleatoriamente.</p>
+          <p className="text-term-amber">⚠  Responda corretamente para avançar.</p>
         </div>
 
         <div className="border-t border-term-border/50 my-3" />
@@ -173,7 +176,7 @@ export default function ChallengeRiddle({ onSolve }) {
           }`}
         >
           <p className="text-[10px] text-term-muted uppercase tracking-[0.3em] mb-3 text-center">
-            ☠ Enigma Selado ☠
+            🧩 Charada 🧩
           </p>
 
           <p className="text-term-white text-sm leading-relaxed italic">
@@ -199,7 +202,7 @@ export default function ChallengeRiddle({ onSolve }) {
               htmlFor="riddle-answer"
               className="text-term-muted text-xs block mb-2"
             >
-              &gt; Qual é a resposta do enigma?
+              &gt; Qual é a resposta da charada?
             </label>
             <div className="flex items-center gap-2">
               <span className="text-term-red select-none">$</span>
@@ -220,7 +223,7 @@ export default function ChallengeRiddle({ onSolve }) {
 
             {status === 'wrong' && (
               <p className="text-term-red text-xs mt-2 animate-fade-in">
-                ✗ Resposta incorreta. O selo permanece intacto. [{attempts} erro{attempts > 1 ? 's' : ''}]
+                ✗ Resposta incorreta. Tente novamente! [{attempts} erro{attempts > 1 ? 's' : ''}]
               </p>
             )}
 
@@ -230,14 +233,14 @@ export default function ChallengeRiddle({ onSolve }) {
               disabled={guess.trim().length < 1 || !typingComplete}
               className="w-full mt-4 border border-term-red/50 text-term-red font-mono text-sm py-3 rounded transition-all duration-200 hover:bg-term-red/10 hover:border-term-red hover:shadow-[0_0_15px_rgba(255,59,48,0.15)] active:scale-[0.98] disabled:opacity-30 disabled:cursor-not-allowed"
             >
-              [ QUEBRAR SELO ]
+              [ RESPONDER ]
             </button>
           </form>
         ) : (
           /* Mensagem de sucesso */
           <div className="mt-4 text-center animate-slide-up">
             <div className="inline-block border border-term-green/40 rounded-full px-4 py-2 bg-term-green/5 mb-3">
-              <span className="text-term-green text-sm">✓ SELO QUEBRADO</span>
+              <span className="text-term-green text-sm">✓ RESPOSTA CORRETA</span>
             </div>
             <p className="text-term-muted text-xs">
               Resposta: <span className="text-term-green font-bold">{riddle.resposta_correta}</span>
@@ -248,8 +251,8 @@ export default function ChallengeRiddle({ onSolve }) {
         {/* Info footer */}
         <div className="border-t border-term-border/30 pt-3 mt-4">
           <p className="text-[11px] text-term-muted leading-relaxed">
-            <span className="text-term-red">☠</span>{' '}
-            Os enigmas são guardiões ancestrais. Pense além do literal.
+            <span className="text-term-cyan">🧩</span>{' '}
+            Charadas exercitam o raciocínio lógico. Pense além do literal!
           </p>
         </div>
       </div>
