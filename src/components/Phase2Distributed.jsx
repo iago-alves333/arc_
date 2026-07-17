@@ -4,20 +4,16 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 // WEBSOCKET URL — Detecção dinâmica para ngrok/nginx
 // =========================================
 function getWebSocketUrl() {
-  // Se a variável de ambiente estiver definida, usar diretamente
   if (import.meta.env.VITE_WS_URL) {
     return import.meta.env.VITE_WS_URL
   }
 
   const { protocol, host, hostname } = window.location
 
-  // Acesso local direto (dev server) -> conectar diretamente ao backend
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
     return 'ws://localhost:8080/ghost-network'
   }
 
-  // Acesso via ngrok/domínio externo -> usar o proxy reverso do nginx
-  // O nginx roteia /api/ → localhost:8080/ (já com suporte a WebSocket)
   const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:'
   return `${wsProtocol}//${host}/api/ghost-network`
 }
@@ -61,27 +57,32 @@ function Confetti() {
 }
 
 // =========================================
-// VICTORY SCREEN
+// VICTORY SCREEN — Senha colaborativa
 // =========================================
-function VictoryScreen({ playerName, senha, stats }) {
+function VictoryScreen({ playerName, senha, stats, discoveredBy }) {
   return (
     <div className="fixed inset-0 z-40 bg-dark-bg/95 backdrop-blur-sm flex items-center justify-center px-6">
       <Confetti />
       <div className="text-center max-w-md animate-slide-up">
         <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-dark-success to-dark-successLight flex items-center justify-center text-4xl shadow-lg shadow-dark-success/20">
-          🛡️
+          🔓
         </div>
 
         <h2 className="font-body text-3xl md:text-4xl font-bold text-dark-text mb-2">
-          Palavra Quebrada!
+          Senha Quebrada!
         </h2>
-        <p className="text-dark-muted text-sm mb-3">
-          A força bruta encontrou a sua palavra secreta
+        <p className="text-dark-muted text-sm mb-1">
+          Todos os computadores trabalharam juntos para quebrar a senha
         </p>
+        {discoveredBy && (
+          <p className="text-dark-accent text-sm mb-3">
+            Encontrada pelo nó de <span className="font-semibold">{discoveredBy}</span>!
+          </p>
+        )}
 
-        {/* Palavra encontrada */}
+        {/* Senha encontrada */}
         <div className="bg-dark-surface border border-dark-accent/30 rounded-xl p-4 mb-6 inline-block">
-          <p className="text-[10px] text-dark-muted uppercase tracking-widest mb-1">Palavra Descoberta</p>
+          <p className="text-[10px] text-dark-muted uppercase tracking-widest mb-1">Senha Descoberta</p>
           <p className="text-dark-accent font-mono text-3xl font-bold tracking-widest">{senha}</p>
         </div>
 
@@ -92,9 +93,9 @@ function VictoryScreen({ playerName, senha, stats }) {
         </p>
 
         <p className="text-sm text-dark-muted leading-relaxed mb-8">
-          O seu dispositivo testou <span className="text-dark-accentLight">208 mil milhões</span> de
-          combinações de 8 letras para encontrar a sua palavra. Cada aluno tinha
-          uma palavra <span className="text-dark-accentLight">diferente</span> para descobrir!
+          A turma inteira dividiu o trabalho: <span className="text-dark-accentLight">{stats.totalNos} dispositivos</span> processaram{' '}
+          <span className="text-dark-accentLight">{stats.lotesProcessados} lotes</span> de combinações em paralelo.
+          Nenhum computador sozinho seria tão rápido!
         </p>
 
         {/* Stats */}
@@ -102,7 +103,7 @@ function VictoryScreen({ playerName, senha, stats }) {
           {[
             { value: stats.totalNos, label: 'Nós' },
             { value: stats.lotesProcessados, label: 'Lotes' },
-            { value: stats.alunosConcluidos, label: 'Concluídos' },
+            { value: stats.totalLotesGlobal || stats.lotesProcessados, label: 'Total Global' },
           ].map((stat) => (
             <div key={stat.label} className="bg-dark-card border border-dark-border rounded-xl p-3">
               <p className="text-xl font-bold text-dark-accent">{stat.value}</p>
@@ -114,9 +115,10 @@ function VictoryScreen({ playerName, senha, stats }) {
         {/* Educational note */}
         <div className="bg-dark-card border border-dark-border rounded-xl p-4 text-left">
           <p className="text-xs text-dark-muted leading-relaxed">
-            <span className="text-dark-success font-semibold">💡 Conceito:</span> Uma palavra de 8 letras
-            tem 26⁸ = 208.827.064.576 combinações possíveis. Dividir este trabalho entre vários
-            computadores é a base dos <em>Sistemas Distribuídos</em>!
+            <span className="text-dark-success font-semibold">💡 Sistemas Distribuídos:</span> Dividir
+            um problema gigante entre vários computadores é a base da computação distribuída.
+            Cada dispositivo processou um pedaço diferente do espaço de combinações — juntos,
+            encontraram a senha muito mais rápido do que qualquer um sozinho!
           </p>
         </div>
       </div>
@@ -174,12 +176,11 @@ function processChunk(inicio, fim, alvoSenha, charset) {
 }
 
 // =========================================
-// PHASE 2 COMPONENT
+// PHASE 2 COMPONENT — Quebra colaborativa de UMA senha
 // =========================================
 export default function Phase2Distributed({ playerName }) {
   const [globalProgress, setGlobalProgress] = useState(0)
   const [totalNos, setTotalNos] = useState(0)
-  const [alunosConcluidos, setAlunosConcluidos] = useState(0)
   const [logs, setLogs] = useState([])
   const [isVictory, setIsVictory] = useState(false)
   const [victoryData, setVictoryData] = useState({})
@@ -187,13 +188,15 @@ export default function Phase2Distributed({ playerName }) {
   const [localProcessed, setLocalProcessed] = useState(0)
   const [totalChunks, setTotalChunks] = useState(0)
   const [totalCombinacoes, setTotalCombinacoes] = useState(0)
+  const [discoveredBy, setDiscoveredBy] = useState(null)
 
   const terminalRef = useRef(null)
   const wsRef = useRef(null)
   const reconnectTimeoutRef = useRef(null)
   const heartbeatRef = useRef(null)
   const alunoIdRef = useRef(null)
-  const charsetRef = useRef('abcdefghijklmnopqrstuvwxyz')
+  const charsetRef = useRef('abcdefghijklmnopqrstuvwxyz0123456789')
+  const isVictoryRef = useRef(false)
   const comprimentoRef = useRef(8)
 
   const addLog = useCallback((message, type = 'info') => {
@@ -270,8 +273,9 @@ export default function Phase2Distributed({ playerName }) {
           setTotalChunks(data.totalChunks)
           setTotalCombinacoes(data.totalCombinacoes)
           addLog(`Registado como "${data.nome}"`, 'success')
+          addLog(`🔒 Senha compartilhada: todos os nós trabalham juntos!`, 'highlight')
           addLog(`Espaço: ${Number(data.totalCombinacoes).toLocaleString()} combinações de ${data.comprimento} letras`, 'info')
-          addLog(`${data.totalNos} nó(s) na rede`, 'info')
+          addLog(`${data.totalNos} nó(s) na rede — dividindo o trabalho`, 'info')
 
           if (wsRef.current?.readyState === WebSocket.OPEN) {
             wsRef.current.send(JSON.stringify({ tipo: 'PEDIR_TRABALHO', alunoId: data.alunoId }))
@@ -285,24 +289,36 @@ export default function Phase2Distributed({ playerName }) {
         case 'ATUALIZACAO_GLOBAL':
           setGlobalProgress(data.progressoPercentagem)
           setTotalNos(data.totalNos)
-          setAlunosConcluidos(data.alunosConcluidos || 0)
           break
 
         case 'SENHA_QUEBRADA_PESSOAL':
+          if (isVictoryRef.current) break
+          isVictoryRef.current = true
           addLog('████████████████████████████', 'highlight')
-          addLog(`✓ PALAVRA ENCONTRADA: "${data.senha}"`, 'success')
-          addLog(`✓ ${data.lotesProcessados} lotes processados`, 'success')
-          addLog('✓ PROCESSAMENTO CONCLUÍDO', 'success')
+          addLog(`🔑 SENHA ENCONTRADA: "${data.senha}"`, 'success')
+          addLog(`✓ ${data.lotesProcessados} lotes processados pelo seu nó`, 'success')
+          addLog('✓ Trabalho colaborativo concluído!', 'success')
+          setDiscoveredBy(data.descobertoPor || playerName)
           setVictoryData({ senha: data.senha, lotesProcessados: data.lotesProcessados })
           setTimeout(() => setIsVictory(true), 1200)
           break
 
         case 'TODOS_CONCLUIDOS':
-          addLog('Todos os alunos concluíram!', 'success')
+          addLog('🎉 Senha quebrada pela turma!', 'success')
           setGlobalProgress(100)
+          if (!isVictoryRef.current) {
+            isVictoryRef.current = true
+            setDiscoveredBy(data.descobertoPor || 'a turma')
+            setVictoryData(prev => ({ ...prev, senha: data.senha, totalLotesGlobal: data.totalLotes }))
+            setTimeout(() => setIsVictory(true), 1200)
+          }
           break
 
         case 'FIM_DE_JOGO':
+          if (isVictoryRef.current) break
+          isVictoryRef.current = true
+          setDiscoveredBy(data.descobertoPor || 'a turma')
+          setVictoryData({ senha: data.senha })
           setIsVictory(true)
           break
 
@@ -355,7 +371,7 @@ export default function Phase2Distributed({ playerName }) {
         if (result.encontrou) {
           addLog(`🔑 ENCONTRADA: "${result.senha}"!`, 'success')
         } else {
-          addLog(`Lote #${chunkId} — não encontrada`, 'info')
+          addLog(`Lote #${chunkId} — não encontrada neste intervalo`, 'info')
         }
 
         if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -397,26 +413,28 @@ export default function Phase2Distributed({ playerName }) {
         <VictoryScreen
           playerName={playerName}
           senha={victoryData.senha}
-          stats={{ totalNos, lotesProcessados: victoryData.lotesProcessados || localProcessed, alunosConcluidos }}
+          discoveredBy={discoveredBy}
+          stats={{ totalNos, lotesProcessados: victoryData.lotesProcessados || localProcessed, totalLotesGlobal: victoryData.totalLotesGlobal }}
         />
       )}
 
       {/* Header */}
       <div className="mb-5 animate-fade-in">
         <p className="text-[10px] font-mono text-dark-muted uppercase tracking-widest mb-1">Fase 2 — Sistemas Distribuídos</p>
-        <h1 className="font-body text-2xl md:text-3xl font-bold text-dark-text">Processamento em Rede</h1>
+        <h1 className="font-body text-2xl md:text-3xl font-bold text-dark-text">Quebra de Senha Colaborativa</h1>
       </div>
 
-      {/* Description */}
+      {/* Description — collaborative */}
       <div className="bg-dark-card border border-dark-border rounded-xl p-4 mb-5 animate-slide-up" style={{ animationDelay: '0.1s' }}>
         <p className="text-sm text-dark-muted leading-relaxed">
-          <span className="text-dark-accent font-semibold">{playerName}</span>, cada dispositivo recebeu
-          uma <span className="text-dark-warn font-semibold">palavra secreta diferente</span>.
-          O seu celular está a testar{' '}
+          <span className="text-dark-accent font-semibold">{playerName}</span>, todos os dispositivos da turma estão
+          trabalhando <span className="text-dark-warn font-semibold">juntos</span> para quebrar{' '}
+          <span className="text-dark-warn font-semibold">uma única senha compartilhada</span>.
+          O espaço de{' '}
           <span className="text-dark-warn font-semibold">
             {totalCombinacoes > 0 ? Number(totalCombinacoes).toLocaleString() : '...'} combinações
           </span>{' '}
-          de 8 letras para encontrar a sua!
+          foi dividido entre todos os nós da rede!
         </p>
       </div>
 
@@ -436,15 +454,9 @@ export default function Phase2Distributed({ playerName }) {
           </div>
         </div>
         <div className="flex items-center justify-between mt-3 pt-3 border-t border-dark-border">
-          <span className="text-xs text-dark-muted">Dispositivos na rede</span>
+          <span className="text-xs text-dark-muted">Dispositivos colaborando</span>
           <span className="text-sm font-semibold text-dark-text">{totalNos} nó{totalNos !== 1 ? 's' : ''}</span>
         </div>
-        {alunosConcluidos > 0 && (
-          <div className="flex items-center justify-between mt-2 pt-2 border-t border-dark-border">
-            <span className="text-xs text-dark-muted">Palavras descobertas</span>
-            <span className="text-sm font-semibold text-dark-success">{alunosConcluidos}/{totalNos}</span>
-          </div>
-        )}
       </div>
 
       {/* Progress bars */}
@@ -452,9 +464,9 @@ export default function Phase2Distributed({ playerName }) {
         {/* Local */}
         <div>
           <div className="flex justify-between items-center mb-1.5">
-            <span className="text-xs text-dark-muted">Sua Palavra (Nó Local)</span>
+            <span className="text-xs text-dark-muted">Seu Nó (contribuição local)</span>
             <span className={`text-[10px] font-mono font-semibold ${isVictory ? 'text-dark-success' : 'text-dark-warn'}`}>
-              {isVictory ? 'ENCONTRADA ✓' : localProcessed > 0 ? `${localProcessed}/${totalChunks}` : 'ATIVO'}
+              {isVictory ? 'CONCLUÍDO ✓' : localProcessed > 0 ? `${localProcessed}/${totalChunks} lotes` : 'PROCESSANDO'}
             </span>
           </div>
           <div className="h-2.5 bg-dark-surface rounded-full overflow-hidden border border-dark-border">
@@ -467,14 +479,14 @@ export default function Phase2Distributed({ playerName }) {
             />
           </div>
           <p className="text-[10px] text-dark-subtle mt-1">
-            {localProcessed > 0 ? `${localProcessed}/${totalChunks} lotes processados` : 'Força bruta — testando combinações de 8 letras'}
+            {localProcessed > 0 ? `${localProcessed} lotes processados pelo seu dispositivo` : 'Testando combinações no seu intervalo atribuído'}
           </p>
         </div>
 
         {/* Global */}
         <div>
           <div className="flex justify-between items-center mb-1.5">
-            <span className="text-xs text-dark-muted">Processamento da Turma (Global)</span>
+            <span className="text-xs text-dark-muted">Progresso da Turma (todos os nós)</span>
             <span className={`text-[10px] font-mono font-semibold ${globalProgress >= 100 ? 'text-dark-success' : 'text-dark-accent'}`}>
               {Math.floor(globalProgress)}%
             </span>
@@ -492,8 +504,8 @@ export default function Phase2Distributed({ playerName }) {
           </div>
           <p className="text-[10px] text-dark-subtle mt-1">
             {globalProgress < 100
-              ? `${alunosConcluidos}/${totalNos} palavras descobertas — cada nó com palavra diferente`
-              : '✓ Todas as palavras encontradas!'}
+              ? `${totalNos} dispositivos dividindo o trabalho — força bruta colaborativa`
+              : '✓ Senha encontrada pela turma!'}
           </p>
         </div>
       </div>
@@ -508,7 +520,7 @@ export default function Phase2Distributed({ playerName }) {
                 <div className="w-2 h-2 rounded-full bg-term-amber/60" />
                 <div className="w-2 h-2 rounded-full bg-dark-success/60" />
               </div>
-              <span className="text-[10px] text-dark-muted font-mono ml-1">brute_force.log</span>
+              <span className="text-[10px] text-dark-muted font-mono ml-1">distributed_cracker.log</span>
             </div>
             <span className={`text-[10px] ${connectionStatus === 'connected' ? 'text-dark-success' : 'text-term-red'} animate-blink font-mono`}>●</span>
           </div>

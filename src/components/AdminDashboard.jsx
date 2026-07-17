@@ -62,7 +62,7 @@ export default function AdminDashboard({
   const alunos = jogadores.filter(j => !j.isAdmin)
   const totalAlunos = alunos.length
   const concluiramMinigames = alunos.filter(j => j.minigamesConcluidos).length
-  const concluiramSenha = alunos.filter(j => j.senhaEncontrada).length
+  const senhaEncontrada = alunos.some(j => j.senhaEncontrada)
   const estadoInfo = ESTADO_CONFIG[estadoPartida] || ESTADO_CONFIG['LOBBY_INICIAL']
 
   // Agrupar por fase
@@ -131,26 +131,29 @@ export default function AdminDashboard({
           </div>
         )}
 
-        {/* Progresso da quebra de senha */}
+        {/* Progresso da quebra de senha colaborativa */}
         {estadoPartida === 'SISTEMAS_DISTRIBUIDOS' && (
           <div className="mt-3 pt-3 border-t border-term-border/50">
             <div className="flex justify-between items-center mb-1">
-              <span className="text-[10px] text-term-muted">Senhas Quebradas</span>
-              <span className="text-[11px] font-mono text-term-green">
-                {concluiramSenha}/{totalAlunos}
+              <span className="text-[10px] text-term-muted">Senha Compartilhada</span>
+              <span className={`text-[11px] font-mono ${senhaEncontrada ? 'text-term-green' : 'text-term-cyan animate-pulse-slow'}`}>
+                {senhaEncontrada ? '🔓 QUEBRADA' : '🔒 Em andamento...'}
               </span>
             </div>
             <div className="h-2 bg-term-bg rounded-full overflow-hidden border border-term-border">
               <div
                 className="h-full rounded-full transition-all duration-700"
                 style={{
-                  width: totalAlunos > 0 ? `${(concluiramSenha / totalAlunos) * 100}%` : '0%',
-                  background: concluiramSenha === totalAlunos
+                  width: senhaEncontrada ? '100%' : '50%',
+                  background: senhaEncontrada
                     ? 'linear-gradient(to right, #39FF14, #6dff56)'
                     : 'linear-gradient(to right, #6366F1, #818CF8)',
                 }}
               />
             </div>
+            <p className="text-[9px] text-term-muted mt-1">
+              {totalAlunos} dispositivo{totalAlunos !== 1 ? 's' : ''} trabalhando juntos
+            </p>
           </div>
         )}
       </div>
@@ -220,7 +223,6 @@ export default function AdminDashboard({
           ) : (
             alunos.map((j, i) => {
               const faseInfo = getFaseInfo(j.faseAtual)
-              const isFinished = j.senhaEncontrada || j.minigamesConcluidos
               return (
                 <div
                   key={j.id}
