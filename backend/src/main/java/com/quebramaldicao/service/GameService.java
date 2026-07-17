@@ -21,15 +21,17 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Motor do Sistema Distribuído — O "Job Tracker".
  *
- * Cada aluno recebe uma senha alfanumérica aleatória de 8 caracteres
- * e deve quebrá-la via força bruta sobre o espaço de 36^8 ≈ 2.8 trilhões de combinações.
+ * MODO COLABORATIVO: Todos os alunos trabalham juntos para quebrar
+ * UMA ÚNICA senha compartilhada. O espaço de procura é dividido
+ * em chunks que são distribuídos entre todos os nós.
  *
- * Agora também gerencia o estado global da partida (lobby/sincronização).
+ * Também gerencia o estado global da partida (lobby/sincronização).
  */
 @Service
 public class GameService {
@@ -57,7 +59,7 @@ public class GameService {
     @Value("${game.chunk-timeout-seconds:15}")
     private int chunkTimeoutSeconds;
 
-    /** Tamanho total do espaço de procura: 26^8 */
+    /** Tamanho total do espaço de procura: 36^8 */
     private long totalSearchSpace;
 
     /** Tamanho de cada chunk */
@@ -69,6 +71,25 @@ public class GameService {
 
     /** Estado atual da partida — controlado pelo Admin. */
     private volatile GameState estadoPartida = GameState.LOBBY_INICIAL;
+
+    // =====================================================
+    // SENHA COMPARTILHADA — Uma única senha para toda a turma
+    // =====================================================
+
+    /** A senha que TODOS os alunos trabalham juntos para quebrar. */
+    private volatile String senhaCompartilhada;
+
+    /** Nome do aluno que encontrou a senha. */
+    private volatile String descobertoPor;
+
+    /** Se a senha já foi encontrada globalmente. */
+    private volatile boolean senhaGlobalEncontrada = false;
+
+    /** Fila GLOBAL de chunks — compartilhada entre todos os alunos. */
+    private final CopyOnWriteArrayList<WorkChunk> chunksGlobais = new CopyOnWriteArrayList<>();
+
+    /** Total de lotes processados globalmente (todos os alunos somados). */
+    private volatile int totalLotesGlobais = 0;
 
     // =====================================================
     // Estado em memória (thread-safe)
@@ -85,47 +106,54 @@ public class GameService {
         totalSearchSpace = (long) Math.pow(CHARSET.length(), WORD_LENGTH);
         chunkSize = totalSearchSpace / numChunks;
 
-        log.info("=== QUEBRA DE MALDIÇÃO API INICIADA ===");
+        // Gerar a primeira senha compartilhada
+        gerarNovaSenhaCompartilhada();
+
+        log.info("=== QUEBRA DE MALDIÇÃO API INICIADA (MODO COLABORATIVO) ===");
         log.info("Charset: a-z0-9 ({} caracteres)", CHARSET.length());
         log.info("Comprimento da senha: {}", WORD_LENGTH);
         log.info("Espaço de procura: {} combinações (36^8)", String.format("%,d", totalSearchSpace));
-        log.info("Chunks por aluno: {}", numChunks);
+        log.info("Chunks globais: {}", numChunks);
         log.info("Tamanho do chunk: {} combinações", String.format("%,d", chunkSize));
         log.info("Timeout de lote: {}s", chunkTimeoutSeconds);
+        log.info("Senha compartilhada: '{}'", senhaCompartilhada);
     }
 
     // =====================================================
-    // Geração de Senhas Aleatórias
+    // Geração de Senha Compartilhada
     // =====================================================
 
     /**
-     * Gera uma senha alfanumérica aleatória de 8 caracteres.
-     * Cada aluno recebe uma senha única.
-     * Retorna [normalizada, display] (ambas iguais, pois são alfanuméricas).
+     * Gera uma nova senha alfanumérica aleatória de 8 caracteres
+     * e recria a fila global de chunks.
      */
-    private String[] gerarSenhaAleatoria() {
+    private void gerarNovaSenhaCompartilhada() {
         StringBuilder sb = new StringBuilder(WORD_LENGTH);
         ThreadLocalRandom rng = ThreadLocalRandom.current();
         for (int i = 0; i < WORD_LENGTH; i++) {
             sb.append(CHARSET.charAt(rng.nextInt(CHARSET.length())));
         }
-        String senha = sb.toString();
-        return new String[]{senha, senha};
+        senhaCompartilhada = sb.toString();
+        descobertoPor = null;
+        senhaGlobalEncontrada = false;
+        totalLotesGlobais = 0;
+
+        // Recriar fila global de chunks
+        criarChunksGlobais();
+
+        log.info("🔒 Nova senha compartilhada gerada: '{}'", senhaCompartilhada);
     }
 
     /**
-     * Converte uma palavra normalizada para o seu índice no espaço de procura.
-     * Ex: "cachorro" → índice numérico usando base 26.
+     * Cria a fila global de chunks para o espaço de procura.
      */
-    private long palavraParaIndice(String palavra) {
-        long index = 0;
-        int base = CHARSET.length();
-        for (int i = 0; i < palavra.length(); i++) {
-            int charPos = CHARSET.indexOf(palavra.charAt(i));
-            if (charPos < 0) charPos = 0; // fallback
-            index = index * base + charPos;
+    private void criarChunksGlobais() {
+        chunksGlobais.clear();
+        for (int i = 0; i < numChunks; i++) {
+            long start = (long) i * chunkSize;
+            long end = (i == numChunks - 1) ? totalSearchSpace - 1 : start + chunkSize - 1;
+            chunksGlobais.add(new WorkChunk(i, start, end));
         }
-        return index;
     }
 
     /**
@@ -141,18 +169,6 @@ public class GameService {
         return new String(result);
     }
 
-    /**
-     * Cria a fila de chunks para um aluno.
-     */
-    private void criarChunksParaAluno(ConnectedStudent student) {
-        student.getChunks().clear();
-        for (int i = 0; i < numChunks; i++) {
-            long start = (long) i * chunkSize;
-            long end = (i == numChunks - 1) ? totalSearchSpace - 1 : start + chunkSize - 1;
-            student.getChunks().add(new WorkChunk(i, start, end));
-        }
-    }
-
     // =====================================================
     // Gestão de Sessões (com suporte a Admin)
     // =====================================================
@@ -166,24 +182,19 @@ public class GameService {
         ConnectedStudent student = new ConnectedStudent(alunoId, nome, session);
         student.setAdmin(isAdmin);
 
-        // Gerar senha alfanumérica aleatória para este aluno
-        String[] senha = gerarSenhaAleatoria();
-        student.setTargetPassword(senha[0]);  // normalizada
-        student.setDisplayPassword(senha[1]); // para exibição
-
-        // Criar chunks
-        criarChunksParaAluno(student);
+        // No modo colaborativo, todos compartilham a mesma senha
+        student.setTargetPassword(senhaCompartilhada);
+        student.setDisplayPassword(senhaCompartilhada);
 
         students.put(session.getId(), student);
 
-        log.info("✦ {} conectado: {} (ID: {}) — Senha: '{}' — Total nós: {}",
-                isAdmin ? "ADMIN" : "Aluno", nome, alunoId, senha[1], students.size());
+        log.info("✦ {} conectado: {} (ID: {}) — Senha compartilhada: '{}' — Total nós: {}",
+                isAdmin ? "ADMIN" : "Aluno", nome, alunoId, senhaCompartilhada, students.size());
 
         // Enviar confirmação individual com o estado atual da partida
         enviarParaSessao(session, criarMensagemRegistoLobby(student));
 
         // Se estamos na fase distribuída, enviar também REGISTO_CONFIRMADO
-        // para que o Phase2Distributed possa iniciar o trabalho de força bruta
         if (estadoPartida == GameState.SISTEMAS_DISTRIBUIDOS) {
             enviarParaSessao(session, criarMensagemRegisto(student));
         }
@@ -204,12 +215,9 @@ public class GameService {
         if (student == null) return;
 
         // Na fase distribuída, o lobby WS fecha e o Phase2 WS reconecta logo a seguir.
-        // Não remover o aluno para evitar "0 nós" transitório — o Phase2 vai
-        // re-registar com uma nova sessão imediatamente.
         if (estadoPartida == GameState.SISTEMAS_DISTRIBUIDOS) {
             log.info("✦ Sessão lobby fechada (fase distribuída — não removido): {}", student.getNome());
             students.remove(session.getId());
-            // Sem broadcast — evita flicker de "0 nós"
             return;
         }
 
@@ -226,9 +234,6 @@ public class GameService {
     // Atualização de Fase e Heartbeat
     // =====================================================
 
-    /**
-     * Atualiza a fase/tela atual de um aluno (para monitoramento do Admin).
-     */
     public void atualizarFase(WebSocketSession session, String fase) {
         ConnectedStudent student = students.get(session.getId());
         if (student != null) {
@@ -237,9 +242,6 @@ public class GameService {
         }
     }
 
-    /**
-     * Responde a um PING com PONG para manter a conexão viva.
-     */
     public void handlePing(WebSocketSession session) {
         enviarParaSessao(session, "{\"tipo\":\"PONG\"}");
     }
@@ -248,10 +250,6 @@ public class GameService {
     // Controle de Estado Global (Admin)
     // =====================================================
 
-    /**
-     * Admin inicia os minijogos: LOBBY_INICIAL → JOGANDO_MINIGAMES.
-     * Faz broadcast para todos os clientes mudarem de tela.
-     */
     public synchronized void iniciarMinigames(WebSocketSession adminSession) {
         ConnectedStudent admin = students.get(adminSession.getId());
         if (admin == null || !admin.isAdmin()) {
@@ -270,9 +268,6 @@ public class GameService {
         broadcastMudarEstado(GameState.JOGANDO_MINIGAMES);
     }
 
-    /**
-     * Um aluno concluiu os minijogos: entra no LOBBY_FINAL.
-     */
     public synchronized void marcarMinigamesConcluidos(WebSocketSession session) {
         ConnectedStudent student = students.get(session.getId());
         if (student == null) return;
@@ -287,17 +282,10 @@ public class GameService {
         log.info("✓ {} concluiu os minijogos — {}/{} concluíram",
                 student.getNome(), contarMinigamesConcluidos(), students.size());
 
-        // Enviar para o aluno que ele agora está no lobby final
         enviarParaSessao(session, criarMensagemMudarEstado(GameState.LOBBY_FINAL));
-
-        // Broadcast atualização do lobby para todos (Admin vê quem terminou)
         broadcastLobbyAtualizado();
     }
 
-    /**
-     * Admin inicia a fase distribuída: JOGANDO_MINIGAMES/LOBBY_FINAL → SISTEMAS_DISTRIBUIDOS.
-     * Faz broadcast para todos os clientes montarem Phase2Distributed.
-     */
     public synchronized void iniciarDistribuido(WebSocketSession adminSession) {
         ConnectedStudent admin = students.get(adminSession.getId());
         if (admin == null || !admin.isAdmin()) {
@@ -305,41 +293,46 @@ public class GameService {
             return;
         }
 
-        // Aceitar transição tanto de JOGANDO_MINIGAMES quanto de LOBBY_FINAL
         if (estadoPartida != GameState.JOGANDO_MINIGAMES && estadoPartida != GameState.LOBBY_FINAL) {
             log.warn(" Estado inválido para iniciar distribuído: {}", estadoPartida);
             return;
         }
 
+        // Gerar nova senha e chunks para esta rodada
+        gerarNovaSenhaCompartilhada();
+
         estadoPartida = GameState.SISTEMAS_DISTRIBUIDOS;
-        log.info("🌐 SISTEMAS DISTRIBUÍDOS INICIADOS pelo Admin {} — {} alunos",
-                admin.getNome(), students.size());
+        log.info("🌐 SISTEMAS DISTRIBUÍDOS INICIADOS (COLABORATIVO) pelo Admin {} — {} alunos — Senha: '{}'",
+                admin.getNome(), students.size(), senhaCompartilhada);
 
         broadcastMudarEstado(GameState.SISTEMAS_DISTRIBUIDOS);
     }
 
-    /**
-     * Retorna o estado atual da partida.
-     */
     public GameState getEstadoPartida() {
         return estadoPartida;
     }
 
     // =====================================================
-    // Distribuição de Trabalho
+    // Distribuição de Trabalho — Fila GLOBAL compartilhada
     // =====================================================
 
+    /**
+     * Atribui o próximo chunk PENDENTE da fila global ao aluno que pediu.
+     * Todos os alunos puxam da mesma fila.
+     */
     public synchronized void atribuirTrabalho(WebSocketSession session) {
         ConnectedStudent student = students.get(session.getId());
         if (student == null) return;
 
-        if (student.isSenhaEncontrada()) {
-            enviarParaSessao(session, criarMensagemFimDeJogo(student));
+        // Se a senha já foi encontrada, notificar o aluno
+        if (senhaGlobalEncontrada) {
+            enviarParaSessao(session, criarMensagemFimDeJogo());
             return;
         }
 
+        // Procurar o próximo chunk pendente na fila GLOBAL
         WorkChunk chunk = null;
-        for (WorkChunk c : student.getChunks()) {
+        for (WorkChunk c : chunksGlobais) {
             if (c.getStatus() == ChunkStatus.PENDENTE) {
                 chunk = c;
                 break;
@@ -358,11 +351,11 @@ public class GameService {
                 indiceParaPalavra(chunk.getInicio()),
                 indiceParaPalavra(chunk.getFim()));
 
-        enviarParaSessao(session, criarMensagemNovoLote(chunk, student));
+        enviarParaSessao(session, criarMensagemNovoLote(chunk));
     }
 
     // =====================================================
-    // Receção de Resultados
+    // Receção de Resultados — Colaborativo
     // =====================================================
 
     public synchronized void processarResultado(WebSocketSession session,
@@ -372,9 +365,16 @@ public class GameService {
         ConnectedStudent student = students.get(session.getId());
         if (student == null) return;
 
+        // Se a senha já foi encontrada, ignorar resultados tardios
+        if (senhaGlobalEncontrada) {
+            enviarParaSessao(session, criarMensagemFimDeJogo());
+            return;
+        }
+
+        // Buscar chunk da fila GLOBAL
         WorkChunk chunk = null;
-        if (chunkId >= 0 && chunkId < student.getChunks().size()) {
-            chunk = student.getChunks().get(chunkId);
+        if (chunkId >= 0 && chunkId < chunksGlobais.size()) {
+            chunk = chunksGlobais.get(chunkId);
         }
 
         if (chunk == null || chunk.getStatus() != ChunkStatus.EM_PROCESSAMENTO) {
@@ -383,35 +383,41 @@ public class GameService {
         }
 
         if (encontrou && senhaCandidata != null) {
-
-            boolean senhaValida = validarSenha(student, senhaCandidata);
+            boolean senhaValida = senhaCompartilhada.equals(senhaCandidata.trim().toLowerCase());
 
             if (senhaValida) {
                 chunk.concluir();
                 student.incrementarLotesProcessados();
-                student.setSenhaEncontrada(true);
+                totalLotesGlobais++;
+                senhaGlobalEncontrada = true;
+                descobertoPor = student.getNome();
 
-                log.info(" PALAVRA ENCONTRADA por {} — '{}'",
-                        student.getNome(), student.getDisplayPassword());
+                log.info("🔑 SENHA ENCONTRADA por {} — '{}'",
+                        student.getNome(), senhaCompartilhada);
 
+                // Notificar o aluno que encontrou
                 enviarParaSessao(session, criarMensagemVitoriaPessoal(student));
+
+                // Notificar TODOS que a senha foi quebrada
+                broadcastSenhaQuebrada(student);
                 broadcastEstadoGlobal();
-                verificarTodosConcluidos();
             } else {
                 log.warn(" BATOTA! Aluno {} enviou '{}' (esperada: '{}')",
-                        student.getNome(), senhaCandidata, student.getTargetPassword());
+                        student.getNome(), senhaCandidata, senhaCompartilhada);
                 chunk.concluir();
                 student.incrementarLotesProcessados();
+                totalLotesGlobais++;
                 broadcastEstadoGlobal();
                 atribuirTrabalho(session);
             }
         } else {
             chunk.concluir();
             student.incrementarLotesProcessados();
+            totalLotesGlobais++;
 
-            log.info("✓ Lote {} de {} — Progresso: {}%",
+            log.info("✓ Lote {} processado por {} — Progresso global: {}%",
                     chunkId, student.getNome(),
-                    String.format("%.1f", student.calcularProgresso()));
+                    String.format("%.1f", calcularProgressoGlobal()));
 
             broadcastEstadoGlobal();
             atribuirTrabalho(session);
@@ -419,15 +425,7 @@ public class GameService {
     }
 
     // =====================================================
-    // Validação Anti-Batota
-    // =====================================================
-
-    private boolean validarSenha(ConnectedStudent student, String senhaCandidata) {
-        return student.getTargetPassword().equals(senhaCandidata.trim().toLowerCase());
-    }
-
-    // =====================================================
-    // Tolerância a Falhas
+    // Tolerância a Falhas — Fila global
     // =====================================================
 
     @Scheduled(fixedRate = 5000)
@@ -435,38 +433,22 @@ public class GameService {
         Instant agora = Instant.now();
         int totalReatribuidos = 0;
 
-        for (ConnectedStudent student : students.values()) {
-            if (student.isSenhaEncontrada()) continue;
+        if (senhaGlobalEncontrada) return;
 
-            for (WorkChunk chunk : student.getChunks()) {
-                if (chunk.getStatus() == ChunkStatus.EM_PROCESSAMENTO
-                        && chunk.getAtribuidoEm() != null) {
-                    Duration tempo = Duration.between(chunk.getAtribuidoEm(), agora);
-                    if (tempo.getSeconds() >= chunkTimeoutSeconds) {
-                        log.info("⏱ Timeout! Lote {} do aluno {} — {}s",
-                                chunk.getId(), student.getNome(), tempo.getSeconds());
-                        chunk.resetar();
-                        totalReatribuidos++;
-                    }
+        for (WorkChunk chunk : chunksGlobais) {
+            if (chunk.getStatus() == ChunkStatus.EM_PROCESSAMENTO
+                    && chunk.getAtribuidoEm() != null) {
+                Duration tempo = Duration.between(chunk.getAtribuidoEm(), agora);
+                if (tempo.getSeconds() >= chunkTimeoutSeconds) {
+                    log.info("⏱ Timeout! Lote {} — {}s", chunk.getId(), tempo.getSeconds());
+                    chunk.resetar();
+                    totalReatribuidos++;
                 }
             }
         }
 
         if (totalReatribuidos > 0) {
-            log.info("↻ {} lotes órfãos retornados à fila", totalReatribuidos);
-        }
-    }
-
-    // =====================================================
-    // Verificação de Conclusão Global
-    // =====================================================
-
-    private void verificarTodosConcluidos() {
-        if (students.isEmpty()) return;
-        boolean todos = students.values().stream().allMatch(ConnectedStudent::isSenhaEncontrada);
-        if (todos) {
-            log.info(" TODOS OS ALUNOS CONCLUÍRAM!");
-            broadcast(criarMensagemTodosConcluidos());
+            log.info("↻ {} lotes órfãos retornados à fila global", totalReatribuidos);
         }
     }
 
@@ -487,49 +469,38 @@ public class GameService {
     public synchronized void resetarJogo() {
         estadoPartida = GameState.LOBBY_INICIAL;
 
+        // Gerar nova senha compartilhada
+        gerarNovaSenhaCompartilhada();
+
         for (ConnectedStudent student : students.values()) {
-            // Gerar nova senha aleatória para cada aluno
-            String[] senha = gerarSenhaAleatoria();
-            student.setTargetPassword(senha[0]);
-            student.setDisplayPassword(senha[1]);
+            student.setTargetPassword(senhaCompartilhada);
+            student.setDisplayPassword(senhaCompartilhada);
             student.setSenhaEncontrada(false);
             student.setMinigamesConcluidos(false);
-            criarChunksParaAluno(student);
+            // Resetar lotes processados de cada aluno individualmente
+            student.resetarLotes();
         }
-        log.info(" Jogo reiniciado — {} alunos com novas senhas", students.size());
+        log.info("🔄 Jogo reiniciado — {} alunos — Nova senha: '{}'", students.size(), senhaCompartilhada);
         broadcastMudarEstado(GameState.LOBBY_INICIAL);
         broadcastLobbyAtualizado();
     }
 
     // =====================================================
-    // Cálculos de Progresso
+    // Cálculos de Progresso — Global (fila compartilhada)
     // =====================================================
 
     private double calcularProgressoGlobal() {
-        if (students.isEmpty()) return 0.0;
-        long totalChunks = 0;
-        long totalConcluidos = 0;
-        for (ConnectedStudent s : students.values()) {
-            totalChunks += s.getChunks().size();
-            totalConcluidos += s.contarChunksConcluidos();
-        }
-        if (totalChunks == 0) return 0.0;
-        return (totalConcluidos * 100.0) / totalChunks;
-    }
-
-    private long contarAlunosConcluidos() {
-        return students.values().stream()
-                .filter(ConnectedStudent::isSenhaEncontrada)
+        if (chunksGlobais.isEmpty()) return 0.0;
+        long concluidos = chunksGlobais.stream()
+                .filter(c -> c.getStatus() == ChunkStatus.CONCLUIDO)
                 .count();
+        return (concluidos * 100.0) / chunksGlobais.size();
     }
 
     // =====================================================
     // Construção de Mensagens JSON — Lobby
     // =====================================================
 
-    /**
-     * Mensagem de confirmação de registo no lobby (enviada apenas ao aluno que se registou).
-     */
     private String criarMensagemRegistoLobby(ConnectedStudent student) {
         ObjectNode msg = objectMapper.createObjectNode();
         msg.put("tipo", "REGISTO_LOBBY");
@@ -540,10 +511,6 @@ public class GameService {
         return msg.toString();
     }
 
-    /**
-     * Broadcast: atualização do lobby (lista de jogadores, estado da partida).
-     * Enviado a TODOS sempre que alguém entra/sai ou muda o estado.
-     */
     private String criarMensagemLobbyAtualizado() {
         ObjectNode msg = objectMapper.createObjectNode();
         msg.put("tipo", "LOBBY_ATUALIZADO");
@@ -567,9 +534,6 @@ public class GameService {
         return msg.toString();
     }
 
-    /**
-     * Broadcast: mudança de estado global da partida.
-     */
     private String criarMensagemMudarEstado(GameState novoEstado) {
         ObjectNode msg = objectMapper.createObjectNode();
         msg.put("tipo", "MUDAR_ESTADO");
@@ -578,7 +542,7 @@ public class GameService {
     }
 
     // =====================================================
-    // Construção de Mensagens JSON — Jogo Distribuído
+    // Construção de Mensagens JSON — Jogo Distribuído Colaborativo
     // =====================================================
 
     private String criarMensagemRegisto(ConnectedStudent student) {
@@ -594,13 +558,13 @@ public class GameService {
         return msg.toString();
     }
 
-    private String criarMensagemNovoLote(WorkChunk chunk, ConnectedStudent student) {
+    private String criarMensagemNovoLote(WorkChunk chunk) {
         ObjectNode msg = objectMapper.createObjectNode();
         msg.put("tipo", "NOVO_LOTE");
         msg.put("chunkId", chunk.getId());
         msg.put("inicio", chunk.getInicio());
         msg.put("fim", chunk.getFim());
-        msg.put("alvoSenha", student.getTargetPassword());
+        msg.put("alvoSenha", senhaCompartilhada);
         msg.put("charset", CHARSET);
         msg.put("comprimento", WORD_LENGTH);
         return msg.toString();
@@ -613,10 +577,11 @@ public class GameService {
         return msg.toString();
     }
 
-    private String criarMensagemFimDeJogo(ConnectedStudent student) {
+    private String criarMensagemFimDeJogo() {
         ObjectNode msg = objectMapper.createObjectNode();
         msg.put("tipo", "FIM_DE_JOGO");
-        msg.put("senha", student.getDisplayPassword());
+        msg.put("senha", senhaCompartilhada);
+        msg.put("descobertoPor", descobertoPor != null ? descobertoPor : "turma");
         msg.put("concluido", true);
         return msg.toString();
     }
@@ -624,10 +589,25 @@ public class GameService {
     private String criarMensagemVitoriaPessoal(ConnectedStudent student) {
         ObjectNode msg = objectMapper.createObjectNode();
         msg.put("tipo", "SENHA_QUEBRADA_PESSOAL");
-        msg.put("senha", student.getDisplayPassword());
-        msg.put("senhaNormalizada", student.getTargetPassword());
+        msg.put("senha", senhaCompartilhada);
         msg.put("lotesProcessados", student.getLotesProcessados());
+        msg.put("descobertoPor", student.getNome());
         return msg.toString();
+    }
+
+    /**
+     * Broadcast para TODOS: a senha foi quebrada colaborativamente.
+     */
+    private void broadcastSenhaQuebrada(ConnectedStudent quemEncontrou) {
+        ObjectNode msg = objectMapper.createObjectNode();
+        msg.put("tipo", "TODOS_CONCLUIDOS");
+        msg.put("senha", senhaCompartilhada);
+        msg.put("descobertoPor", quemEncontrou.getNome());
+        msg.put("totalNos", students.size());
+        msg.put("totalLotes", totalLotesGlobais);
+        msg.put("progressoPercentagem", 100.0);
+        msg.put("concluido", true);
+        broadcast(msg.toString());
     }
 
     private String criarMensagemAtualizacaoGlobal() {
@@ -635,18 +615,8 @@ public class GameService {
         msg.put("tipo", "ATUALIZACAO_GLOBAL");
         msg.put("progressoPercentagem", Math.round(calcularProgressoGlobal() * 10.0) / 10.0);
         msg.put("totalNos", students.size());
-        msg.put("alunosConcluidos", contarAlunosConcluidos());
-        msg.put("concluido", students.size() > 0
-                && contarAlunosConcluidos() == students.size());
-        return msg.toString();
-    }
-
-    private String criarMensagemTodosConcluidos() {
-        ObjectNode msg = objectMapper.createObjectNode();
-        msg.put("tipo", "TODOS_CONCLUIDOS");
-        msg.put("totalNos", students.size());
-        msg.put("progressoPercentagem", 100.0);
-        msg.put("concluido", true);
+        msg.put("totalLotesProcessados", totalLotesGlobais);
+        msg.put("senhaEncontrada", senhaGlobalEncontrada);
         return msg.toString();
     }
 
@@ -689,12 +659,15 @@ public class GameService {
     public Map<String, Object> getEstadoCompleto() {
         Map<String, Object> estado = new LinkedHashMap<>();
         estado.put("estadoPartida", estadoPartida.name());
+        estado.put("modo", "COLABORATIVO");
         estado.put("totalAlunos", students.size());
-        estado.put("senhasTipo", "alfanumérica aleatória 8 chars");
+        estado.put("senhaCompartilhada", senhaCompartilhada);
+        estado.put("senhaEncontrada", senhaGlobalEncontrada);
+        estado.put("descobertoPor", descobertoPor);
         estado.put("totalCombinacoes", String.format("%,d", totalSearchSpace));
-        estado.put("chunksPerAluno", numChunks);
+        estado.put("chunksGlobais", numChunks);
         estado.put("progressoGlobal", Math.round(calcularProgressoGlobal() * 10.0) / 10.0);
-        estado.put("alunosConcluidos", contarAlunosConcluidos());
+        estado.put("totalLotesProcessados", totalLotesGlobais);
         estado.put("minigamesConcluidos", contarMinigamesConcluidos());
 
         List<Map<String, Object>> alunosList = new ArrayList<>();
@@ -703,10 +676,7 @@ public class GameService {
             aluno.put("id", s.getId());
             aluno.put("nome", s.getNome());
             aluno.put("isAdmin", s.isAdmin());
-            aluno.put("palavra", s.getDisplayPassword());
             aluno.put("lotesProcessados", s.getLotesProcessados());
-            aluno.put("progresso", Math.round(s.calcularProgresso() * 10.0) / 10.0);
-            aluno.put("encontrada", s.isSenhaEncontrada());
             aluno.put("minigamesConcluidos", s.isMinigamesConcluidos());
             alunosList.add(aluno);
         }

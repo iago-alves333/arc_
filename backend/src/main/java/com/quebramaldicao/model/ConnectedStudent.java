@@ -7,7 +7,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Representa um aluno conectado via WebSocket (um "Worker Node").
- * Cada aluno recebe uma palavra aleatória da lista para quebrar.
+ * No modo colaborativo, todos compartilham a mesma senha e fila de chunks.
  */
 public class ConnectedStudent {
 
@@ -26,11 +26,16 @@ public class ConnectedStudent {
     private String faseAtual = "LOBBY_INICIAL";
 
     // --- Estado individual do jogo ---
-    /** Palavra normalizada para comparação (ex: "maldicao") */
+    /** Senha alvo (no modo colaborativo, é a mesma para todos) */
     private String targetPassword;
-    /** Palavra original para exibição na UI (ex: "Maldição") */
+    /** Senha para exibição na UI */
     private String displayPassword;
     private boolean senhaEncontrada;
+
+    /**
+     * Lista de chunks mantida para compatibilidade, mas no modo colaborativo
+     * a fila real está em GameService.chunksGlobais.
+     */
     private final CopyOnWriteArrayList<WorkChunk> chunks;
 
     public ConnectedStudent(String id, String nome, WebSocketSession session) {
@@ -129,6 +134,13 @@ public class ConnectedStudent {
     }
 
     /**
+     * Reseta o contador de lotes processados (usado no reset do jogo).
+     */
+    public void resetarLotes() {
+        this.lotesProcessados = 0;
+    }
+
+    /**
      * Verifica se a sessão WebSocket ainda está aberta.
      */
     public boolean isConectado() {
@@ -157,7 +169,7 @@ public class ConnectedStudent {
 
     @Override
     public String toString() {
-        return String.format("ConnectedStudent{id=%s, nome='%s', target='%s', lotes=%d, encontrou=%b}",
-                id, nome, displayPassword, lotesProcessados, senhaEncontrada);
+        return String.format("ConnectedStudent{id=%s, nome='%s', lotes=%d, encontrou=%b}",
+                id, nome, lotesProcessados, senhaEncontrada);
     }
 }
