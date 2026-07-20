@@ -354,7 +354,7 @@ export default function Phase2Distributed({ playerName }) {
       addLog(`Lote #${chunkId}: "${startStr}" → "${endStr}"`, 'info')
 
       // Simular processamento — gerar logs falsos de "tentativas"
-      const delay = 300 + Math.random() * 700
+      const delay = 1000 + Math.random() * 1500
       const numFakeLogs = 2 + Math.floor(Math.random() * 3)
 
       // Gerar algumas tentativas "falsas" para efeito visual
