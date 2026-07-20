@@ -43,7 +43,7 @@ export let options = {
 // =====================================================
 // Configuração
 // =====================================================
-const WS_URL = __ENV.WS_URL || 'ws://localhost:8080/ghost-network';
+const WS_URL = __ENV.WS_URL || 'wss://arc2-abfjhpb9gndvhzd3.brazilsouth-01.azurewebsites.net/ghost-network';
 const SIMULATE_ADMIN = (__ENV.SIMULATE_ADMIN || 'false') === 'true';
 const CHARSET = 'abcdefghijklmnopqrstuvwxyz0123456789';
 const WORD_LENGTH = 8;

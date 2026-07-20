@@ -31,12 +31,13 @@ function getWebSocketUrl() {
   if (import.meta.env.VITE_WS_URL) {
     return import.meta.env.VITE_WS_URL
   }
-  const { protocol, host, hostname } = window.location
+  const { hostname } = window.location
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
     return 'ws://localhost:8080/ghost-network'
   }
-  const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${wsProtocol}//${host}/api/ghost-network`
+  
+  // Deploy no Azure
+  return 'wss://arc2-abfjhpb9gndvhzd3.brazilsouth-01.azurewebsites.net/ghost-network'
 }
 
 const WS_URL = getWebSocketUrl()
