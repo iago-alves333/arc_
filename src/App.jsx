@@ -54,6 +54,7 @@ function App() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [jogadores, setJogadores] = useState([])
   const [estadoPartida, setEstadoPartida] = useState('LOBBY_INICIAL')
+  const [progressoGlobal, setProgressoGlobal] = useState(0)
 
   // WebSocket ref para a comunicação de lobby
   const wsRef = useRef(null)
@@ -102,11 +103,16 @@ function App() {
       case 'LOBBY_ATUALIZADO':
         setJogadores(data.jogadores || [])
         setEstadoPartida(data.estadoPartida || 'LOBBY_INICIAL')
+        setProgressoGlobal(data.progressoGlobal || 0)
         break
 
       case 'MUDAR_ESTADO':
         setEstadoPartida(data.novoEstado)
         handleEstadoPartida(data.novoEstado, isAdminRef.current)
+        break
+
+      case 'ATUALIZACAO_GLOBAL':
+        setProgressoGlobal(data.progressoPercentagem)
         break
 
       case 'PONG':
@@ -297,6 +303,7 @@ function App() {
             playerName={playerName}
             jogadores={jogadores}
             estadoPartida={estadoPartida}
+            progressoGlobal={progressoGlobal}
             onStartMinigames={handleAdminStartMinigames}
             onStartDistributed={handleAdminStartDistributed}
             onResetGame={handleResetGame}

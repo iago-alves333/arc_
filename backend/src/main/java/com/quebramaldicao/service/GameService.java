@@ -96,6 +96,7 @@ public class GameService {
     // =====================================================
 
     private final ConcurrentHashMap<String, ConnectedStudent> students = new ConcurrentHashMap<>();
+    private volatile Instant lastTimeWithStudents = Instant.now();
 
     // =====================================================
     // Inicialização
@@ -175,6 +176,7 @@ public class GameService {
 
     /**
      * Regista um aluno (ou Admin) no jogo.
+     * 
      * @param isAdmin true se o jogador ativou o modo Admin no frontend
      */
     public String registarAluno(WebSocketSession session, String nome, boolean isAdmin) {
@@ -186,7 +188,18 @@ public class GameService {
         student.setTargetPassword(senhaCompartilhada);
         student.setDisplayPassword(senhaCompartilhada);
 
+        if (estadoPartida == GameState.SISTEMAS_DISTRIBUIDOS) {
+            if (isAdmin) {
+                student.setFaseAtual("ADMIN_DASHBOARD");
+            } else {
+                student.setFaseAtual("SISTEMAS_DISTRIBUIDOS");
+                student.setMinigamesConcluidos(true);
+                student.setSenhaEncontrada(senhaGlobalEncontrada);
+            }
+        }
+
         students.put(session.getId(), student);
+        lastTimeWithStudents = Instant.now();
 
         log.info("✦ {} conectado: {} (ID: {}) — Senha compartilhada: '{}' — Total nós: {}",
                 isAdmin ? "ADMIN" : "Aluno", nome, alunoId, senhaCompartilhada, students.size());
@@ -212,16 +225,23 @@ public class GameService {
 
     public void removerAluno(WebSocketSession session) {
         ConnectedStudent student = students.get(session.getId());
-        if (student == null) return;
+        if (student == null)
+            return;
 
         // Na fase distribuída, o lobby WS fecha e o Phase2 WS reconecta logo a seguir.
         if (estadoPartida == GameState.SISTEMAS_DISTRIBUIDOS) {
             log.info("✦ Sessão lobby fechada (fase distribuída — não removido): {}", student.getNome());
             students.remove(session.getId());
+            if (students.isEmpty()) {
+                lastTimeWithStudents = Instant.now();
+            }
             return;
         }
 
         students.remove(session.getId());
+        if (students.isEmpty()) {
+            lastTimeWithStudents = Instant.now();
+        }
         log.info("✦ Aluno desconectado: {} — Restam: {}", student.getNome(), students.size());
         broadcastLobbyAtualizado();
     }
@@ -270,7 +290,8 @@ public class GameService {
 
     public synchronized void marcarMinigamesConcluidos(WebSocketSession session) {
         ConnectedStudent student = students.get(session.getId());
-        if (student == null) return;
+        if (student == null)
+            return;
 
         if (estadoPartida != GameState.JOGANDO_MINIGAMES) {
             log.warn(" Aluno {} tentou concluir minigames fora do estado correto: {}",
@@ -322,7 +343,8 @@ public class GameService {
      */
     public synchronized void atribuirTrabalho(WebSocketSession session) {
         ConnectedStudent student = students.get(session.getId());
-        if (student == null) return;
+        if (student == null)
+            return;
 
         // Se a senha já foi encontrada, notificar o aluno
         if (senhaGlobalEncontrada) {
@@ -359,11 +381,12 @@ public class GameService {
     // =====================================================
 
     public synchronized void processarResultado(WebSocketSession session,
-                                                  int chunkId,
-                                                  boolean encontrou,
-                                                  String senhaCandidata) {
+            int chunkId,
+            boolean encontrou,
+            String senhaCandidata) {
         ConnectedStudent student = students.get(session.getId());
-        if (student == null) return;
+        if (student == null)
+            return;
 
         // Se a senha já foi encontrada, ignorar resultados tardios
         if (senhaGlobalEncontrada) {
@@ -392,6 +415,10 @@ public class GameService {
                 senhaGlobalEncontrada = true;
                 descobertoPor = student.getNome();
 
+                for (ConnectedStudent s : students.values()) {
+                    s.setSenhaEncontrada(true);
+                }
+
                 log.info("🔑 SENHA ENCONTRADA por {} — '{}'",
                         student.getNome(), senhaCompartilhada);
 
@@ -401,6 +428,7 @@ public class GameService {
                 // Notificar TODOS que a senha foi quebrada
                 broadcastSenhaQuebrada(student);
                 broadcastEstadoGlobal();
+                broadcastLobbyAtualizado();
             } else {
                 log.warn(" BATOTA! Aluno {} enviou '{}' (esperada: '{}')",
                         student.getNome(), senhaCandidata, senhaCompartilhada);
@@ -431,9 +459,21 @@ public class GameService {
     @Scheduled(fixedRate = 5000)
     public void verificarTimeouts() {
         Instant agora = Instant.now();
+
+        if (students.isEmpty() && estadoPartida != GameState.LOBBY_INICIAL) {
+            if (Duration.between(lastTimeWithStudents, agora).getSeconds() > 5) {
+                log.info("⏳ Sala vazia por mais de 5s. Resetando o jogo para o estado inicial.");
+                resetarJogo();
+                return;
+            }
+        } else if (!students.isEmpty()) {
+            lastTimeWithStudents = agora;
+        }
+
         int totalReatribuidos = 0;
 
-        if (senhaGlobalEncontrada) return;
+        if (senhaGlobalEncontrada)
+            return;
 
         for (WorkChunk chunk : chunksGlobais) {
             if (chunk.getStatus() == ChunkStatus.EM_PROCESSAMENTO
@@ -490,7 +530,8 @@ public class GameService {
     // =====================================================
 
     private double calcularProgressoGlobal() {
-        if (chunksGlobais.isEmpty()) return 0.0;
+        if (chunksGlobais.isEmpty())
+            return 0.0;
         long concluidos = chunksGlobais.stream()
                 .filter(c -> c.getStatus() == ChunkStatus.CONCLUIDO)
                 .count();

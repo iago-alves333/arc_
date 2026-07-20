@@ -44,6 +44,7 @@ export default function AdminDashboard({
   playerName,
   jogadores = [],
   estadoPartida = 'LOBBY_INICIAL',
+  progressoGlobal = 0,
   onStartMinigames,
   onStartDistributed,
   onResetGame,
@@ -137,14 +138,14 @@ export default function AdminDashboard({
             <div className="flex justify-between items-center mb-1">
               <span className="text-[10px] text-term-muted">Senha Compartilhada</span>
               <span className={`text-[11px] font-mono ${senhaEncontrada ? 'text-term-green' : 'text-term-cyan animate-pulse-slow'}`}>
-                {senhaEncontrada ? '🔓 QUEBRADA' : '🔒 Em andamento...'}
+                {senhaEncontrada ? '🔓 QUEBRADA' : `🔒 Em andamento... ${Math.floor(progressoGlobal)}%`}
               </span>
             </div>
             <div className="h-2 bg-term-bg rounded-full overflow-hidden border border-term-border">
               <div
                 className="h-full rounded-full transition-all duration-700"
                 style={{
-                  width: senhaEncontrada ? '100%' : '50%',
+                  width: senhaEncontrada ? '100%' : `${progressoGlobal}%`,
                   background: senhaEncontrada
                     ? 'linear-gradient(to right, #39FF14, #6dff56)'
                     : 'linear-gradient(to right, #6366F1, #818CF8)',
